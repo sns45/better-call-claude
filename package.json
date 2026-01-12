@@ -1,0 +1,55 @@
+{
+  "name": "better-call-claude",
+  "version": "2.0.0",
+  "description": "Bi-directional communication for Claude Code via Voice Calls, SMS, and WhatsApp",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "better-call-claude": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target node",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@ngrok/ngrok": "^1.4.1",
+    "hono": "^4.6.0",
+    "openai": "^4.77.0",
+    "telnyx": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "mcp",
+    "phone",
+    "voice",
+    "sms",
+    "whatsapp",
+    "telnyx",
+    "twilio"
+  ],
+  "author": "Shantanu",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sns45/better-call-claude.git"
+  },
+  "homepage": "https://github.com/sns45/better-call-claude#readme",
+  "bugs": {
+    "url": "https://github.com/sns45/better-call-claude/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

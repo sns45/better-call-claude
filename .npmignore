@@ -1,0 +1,14 @@
+src/
+*.ts
+tsconfig.json
+bun.lock
+bun.lockb
+package-lock.json
+.env*
+hyoudou-app/
+todo-app/
+dist/*.node
+.claude/
+.git/
+.gitignore
+.DS_Store

@@ -1,0 +1,10 @@
+{
+  "name": "better-call-claude",
+  "namespace": "io.github.sns45",
+  "description": "Phone calls, SMS, and WhatsApp for Claude Code - enables voice-driven development",
+  "repository": "https://github.com/sns45/better-call-claude",
+  "npm": {
+    "package": "better-call-claude"
+  },
+  "tags": ["voice", "phone", "sms", "whatsapp", "twilio", "telnyx", "communication"]
+}
