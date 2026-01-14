@@ -1,6 +1,13 @@
 # Better Call Claude
 
-**Bi-directional communication for Claude Code via Voice Calls, SMS, and WhatsApp.** Call Claude from your phone to start tasks, and receive callbacks when Claude needs input or wants to share status.
+<p align="center">
+  <img src="assets/marketing/hero-poster.png" alt="Better Call Claude - Agentic AI Communication Solution" width="400">
+</p>
+
+<p align="center">
+  <strong>Bi-directional communication for Claude Code via Voice Calls, SMS, and WhatsApp.</strong><br>
+  Call Claude from your phone to start tasks, and receive callbacks when Claude needs input or wants to share status.
+</p>
 
 > 📞 "Hey Claude, refactor the auth module and call me when you're done or need a decision."
 >
@@ -20,10 +27,26 @@
 - **📲 Outbound calls** - Claude calls you when done, stuck, or needs decisions
 - **💬 SMS messaging** - Send and receive text messages with Claude
 - **📱 WhatsApp** - Full WhatsApp Business integration
+- **🔄 Cross-channel context** - Start on voice, continue on WhatsApp seamlessly
+- **🔗 Persistent sessions** - Claude stays alive listening for WhatsApp messages
 - **🔒 Secure transports** - Choose ngrok (easy) or Tailscale (enterprise-grade)
 - **🗣️ Natural conversations** - Multi-turn interactions across all channels
 - **🔧 Tool composable** - Claude can use other tools while communicating
+- **⚡ Auto-webhook updates** - Twilio webhooks auto-update when ngrok URL changes
 - **⌚ Works anywhere** - Phone, smartwatch, or any device
+
+> ### ⚠️ Testing Status
+>
+> | Channel | Provider | Status |
+> |---------|----------|--------|
+> | Voice | Twilio | ✅ **Tested & Working** |
+> | WhatsApp | Twilio Sandbox | ✅ **Tested & Working** |
+> | SMS | Twilio | ⏳ Pending A2P 10DLC verification |
+> | Voice | Telnyx | 🔬 Not yet tested |
+> | SMS | Telnyx | 🔬 Not yet tested |
+> | WhatsApp | Telnyx | 🔬 Not yet tested |
+>
+> *Contributions welcome for testing other provider/channel combinations!*
 
 ---
 
@@ -155,6 +178,7 @@ Restart Claude Code. Done!
 | `BETTERCALLCLAUDE_PHONE_ACCOUNT_SID` | Provider account/connection ID |
 | `BETTERCALLCLAUDE_PHONE_AUTH_TOKEN` | Provider API key/auth token |
 | `BETTERCALLCLAUDE_PHONE_NUMBER` | Your Telnyx/Twilio phone number (E.164) |
+| `BETTERCALLCLAUDE_WHATSAPP_NUMBER` | WhatsApp number if different (e.g., Twilio Sandbox) |
 | `BETTERCALLCLAUDE_USER_PHONE_NUMBER` | Your personal phone number |
 | `BETTERCALLCLAUDE_OPENAI_API_KEY` | OpenAI API key for TTS/STT |
 | `BETTERCALLCLAUDE_TRANSPORT` | `ngrok` or `tailscale` |
@@ -188,6 +212,10 @@ Restart Claude Code. Done!
 ## Usage
 
 ### Voice Calls
+
+<p align="center">
+  <img src="assets/marketing/voice-call-comic.png" alt="Voice Call Example - Comic Style" width="500">
+</p>
 
 #### You → Claude (Inbound Calls)
 
@@ -249,6 +277,56 @@ Claude responds in WhatsApp:
 Claude can send rich WhatsApp messages:
 
 > 🤖 "Code review complete! Found 2 issues:\n• Line 23: Unused variable\n• Line 67: Missing error handling\n\nReply 'fix' to auto-fix or 'details' for more info."
+
+---
+
+### Cross-Channel Context
+
+Start a task on voice and seamlessly continue on WhatsApp - Claude remembers everything.
+
+<p align="center">
+  <img src="assets/marketing/whatsapp-continuation.png" alt="WhatsApp Continuation Example" width="350">
+</p>
+
+#### Example Flow
+
+1. **Call Claude:**
+   > 📞 "Hey Claude, run the todo app in dev mode and let's continue on WhatsApp"
+
+2. **Claude starts the app and enters WhatsApp listening mode:**
+   > 🤖 "Todo app running on port 5173. Send me WhatsApp messages for more instructions."
+
+3. **Send WhatsApp message:**
+   > 💬 "Expose it via localtunnel and add the URL to allowed hosts"
+
+4. **Claude responds via WhatsApp:**
+   > 🤖 "Done! Localtunnel URL: https://xyz.loca.lt - I've added it to vite.config.ts allowedHosts"
+
+5. **Continue the conversation:**
+   > 💬 "What's the public IP so I can access it remotely?"
+   >
+   > 🤖 "Your public IP is 203.0.113.42. Access the app at https://xyz.loca.lt"
+
+**Key phrases to trigger WhatsApp listening:**
+- "Continue on WhatsApp"
+- "Let's talk on WhatsApp"
+- "Listen for my WhatsApp messages"
+
+---
+
+### WhatsApp Sandbox (Twilio)
+
+For testing, you can use Twilio's WhatsApp Sandbox instead of a full WhatsApp Business account.
+
+1. Go to [Twilio Console > Messaging > WhatsApp Sandbox](https://console.twilio.com/us1/develop/sms/try-it-out/whatsapp-learn)
+2. Send the join code to the sandbox number (+1 415 523 8886)
+3. Set the webhook URL to `{your-ngrok-url}/webhook/twilio/whatsapp`
+4. Add to your config:
+   ```json
+   "BETTERCALLCLAUDE_WHATSAPP_NUMBER": "+14155238886"
+   ```
+
+> **Note:** Sandbox requires re-joining every 72 hours.
 
 ---
 
@@ -539,7 +617,7 @@ const history = await get_conversation_history({
 
 ```bash
 # Clone the repo
-git clone https://github.com/yourusername/better-call-claude
+git clone https://github.com/sns45/better-call-claude
 cd better-call-claude
 
 # Install dependencies
