@@ -1,10 +1,57 @@
 {
-  "name": "better-call-claude",
-  "namespace": "io.github.sns45",
-  "description": "Phone calls, SMS, and WhatsApp for Claude Code - enables voice-driven development",
-  "repository": "https://github.com/sns45/better-call-claude",
-  "npm": {
-    "package": "better-call-claude"
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.sns45/better-call-claude",
+  "description": "Voice Calls, SMS, and WhatsApp for Claude Code with cross-channel context sharing.",
+  "repository": {
+    "url": "https://github.com/sns45/better-call-claude",
+    "source": "github"
   },
-  "tags": ["voice", "phone", "sms", "whatsapp", "twilio", "telnyx", "communication"]
+  "version": "2.1.1",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "better-call-claude",
+      "version": "2.1.1",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "description": "Phone provider: 'twilio' or 'telnyx'",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": false,
+          "name": "BETTERCALLCLAUDE_PHONE_PROVIDER"
+        },
+        {
+          "description": "Your phone number in E.164 format",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": false,
+          "name": "BETTERCALLCLAUDE_PHONE_NUMBER"
+        },
+        {
+          "description": "Twilio Account SID or Telnyx API Key",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": true,
+          "name": "BETTERCALLCLAUDE_PHONE_ACCOUNT_SID"
+        },
+        {
+          "description": "Twilio Auth Token or Telnyx API Secret",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": true,
+          "name": "BETTERCALLCLAUDE_PHONE_AUTH_TOKEN"
+        },
+        {
+          "description": "ngrok auth token for public URL tunneling",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": true,
+          "name": "NGROK_AUTHTOKEN"
+        }
+      ]
+    }
+  ]
 }

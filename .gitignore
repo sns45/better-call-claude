@@ -9,3 +9,6 @@ bun.lockb
 hyoudou-app/
 todo-app/
 .idea/
+servers/
+mcp-publisher
+.mcpregistry_*
