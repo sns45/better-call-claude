@@ -19,6 +19,8 @@ export interface TaskContext {
   originalTask: string;
   completionSummary: string;
   workingDir: string;
+  completedAt?: number;        // Timestamp for cross-channel lookup
+  conversationId?: string;     // Original conversation ID
 }
 
 export class TaskExecutor {
@@ -69,14 +71,46 @@ export class TaskExecutor {
   }
 
   /**
+   * Get the most recent task context (for cross-channel continuity)
+   * Used when WhatsApp message should continue work from a voice call
+   */
+  getLatestTaskContext(): TaskContext | undefined {
+    let latestContext: TaskContext | undefined;
+    let latestTime = 0;
+
+    for (const [conversationId, execution] of this.executions) {
+      // Find most recently completed or running task
+      const executionTime = execution.startedAt.getTime();
+      if (executionTime > latestTime) {
+        latestTime = executionTime;
+        latestContext = {
+          originalTask: execution.task,
+          completionSummary: execution.completionSummary || "Task in progress",
+          workingDir: execution.workingDir,
+          completedAt: execution.status !== "running" ? executionTime : undefined,
+          conversationId: conversationId,
+        };
+      }
+    }
+
+    if (latestContext) {
+      console.log(`[TaskExecutor] Latest context: ${latestContext.originalTask.slice(0, 50)}... (${latestContext.conversationId?.slice(0, 8)})`);
+    }
+
+    return latestContext;
+  }
+
+  /**
    * Execute a task by spawning a Claude Code session
    * @param context Optional context from a previous task (for follow-ups on callbacks)
+   * @param channel Communication channel - affects how Claude responds
    */
   async executeTask(
     conversationId: string,
     initialTask: string,
     workingDir: string,
-    context?: TaskContext
+    context?: TaskContext,
+    channel: "voice" | "whatsapp" | "sms" = "voice"
   ): Promise<void> {
     // Build context section if we have prior task info
     let contextSection = "";
@@ -84,22 +118,54 @@ export class TaskExecutor {
       contextSection = `
 ## IMPORTANT: Previous Task Context
 
-This is a FOLLOW-UP call. Before this call, you completed a task:
+This is a FOLLOW-UP from a previous task${context.conversationId ? ` (conversation ${context.conversationId.slice(0, 8)})` : ""}:
 
 **Original Request**: "${context.originalTask}"
-**What You Created**: "${context.completionSummary}"
+**What Was Done**: "${context.completionSummary}"
 **Working Directory**: ${context.workingDir}
 
-The user is asking a follow-up question about what you just created.
+The user is asking a follow-up question about what was just created.
 You should continue working in the same directory and build on what was already created.
 `;
     }
 
-    const prompt = `
-You received a phone call from a user. Their request was:
-"${initialTask}"
-${contextSection}
-## Phone Communication API
+    // Channel-specific instructions
+    const channelInstructions = channel === "whatsapp"
+      ? `
+## Communication Channel: WhatsApp
+
+You received this task via WhatsApp (a text messaging app).
+Use the WhatsApp endpoint to respond - do NOT use voice endpoints.
+
+### Send WhatsApp message to user:
+\`\`\`bash
+curl -s -X POST ${this.apiBaseUrl}/api/whatsapp \\
+  -H "Content-Type: application/json" \\
+  -d '{"message": "Your message here"}'
+\`\`\`
+
+DO NOT use /api/ask or /api/say (those are for voice calls).
+When done, send a WhatsApp message with the result instead of calling /api/complete.
+`
+      : channel === "sms"
+      ? `
+## Communication Channel: SMS
+
+You received this task via SMS text message.
+Use the SMS endpoint to respond - do NOT use voice endpoints.
+
+### Send SMS to user:
+\`\`\`bash
+curl -s -X POST ${this.apiBaseUrl}/api/sms \\
+  -H "Content-Type: application/json" \\
+  -d '{"message": "Your message here"}'
+\`\`\`
+
+DO NOT use /api/ask or /api/say (those are for voice calls).
+When done, send an SMS with the result instead of calling /api/complete.
+`
+      : `
+## Communication Channel: Voice
 
 You can communicate with the user via these HTTP endpoints. Use curl to call them.
 
@@ -130,7 +196,9 @@ This will speak to user if still on call, or call them back if they hung up.
 \`\`\`bash
 curl -s ${this.apiBaseUrl}/api/status/${conversationId}
 \`\`\`
+`;
 
+    const messagingEndpoints = `
 ### Send SMS to user:
 \`\`\`bash
 curl -s -X POST ${this.apiBaseUrl}/api/sms \\
@@ -145,17 +213,49 @@ curl -s -X POST ${this.apiBaseUrl}/api/whatsapp \\
   -d '{"message": "Here is the URL: https://example.com"}'
 \`\`\`
 
+### Wait for WhatsApp message (blocking - keeps session alive):
+\`\`\`bash
+curl -s -X POST ${this.apiBaseUrl}/api/whatsapp-wait \\
+  -H "Content-Type: application/json" \\
+  -d '{"timeout_ms": 300000}'
+\`\`\`
+Returns: {"message": "user's WhatsApp message", "received": true}
+Or on timeout: {"message": null, "received": false, "reason": "timeout"}
+
+Use this in a loop to continuously listen for WhatsApp messages:
+\`\`\`bash
+while true; do
+  response=$(curl -s -X POST ${this.apiBaseUrl}/api/whatsapp-wait -H "Content-Type: application/json" -d '{"timeout_ms": 300000}')
+  received=$(echo "$response" | jq -r '.received')
+  if [ "$received" = "true" ]; then
+    message=$(echo "$response" | jq -r '.message')
+    # Process the message and respond
+    # ... do work based on message ...
+    curl -s -X POST ${this.apiBaseUrl}/api/whatsapp -H "Content-Type: application/json" -d "{\"message\": \"Done!\"}"
+  fi
+done
+\`\`\`
+`;
+
+    const prompt = `
+You received a ${channel === "voice" ? "phone call" : channel.toUpperCase() + " message"} from a user. Their request was:
+"${initialTask}"
+${contextSection}
+${channelInstructions}
+${channel === "voice" ? messagingEndpoints : ""}
 ## Important Instructions
 
-1. **Clarify first**: If the request is unclear, use /api/ask to get clarification
-2. **Keep it short**: Phone conversation - questions should be 1-2 sentences max
-3. **Give updates**: Use /api/say for progress updates on longer tasks
+1. ${channel === "voice" ? "**Clarify first**: If the request is unclear, use /api/ask to get clarification" : "**Work autonomously**: Execute the task directly"}
+2. **Keep it short**: ${channel === "voice" ? "Phone conversation - questions should be 1-2 sentences max" : "Messages should be concise"}
+3. **Give updates**: ${channel === "voice" ? "Use /api/say for progress updates on longer tasks" : "Send progress updates via " + channel}
 4. **Work locally**: Create files and directories in ${workingDir}
-5. **Always complete**: When done, ALWAYS call /api/complete with a summary
-6. **Auto-callback**: If user hangs up, /api/complete will call them back automatically
+5. ${channel === "voice" ? "**Always complete**: When done, ALWAYS call /api/complete with a summary" : "**Respond when done**: Send final result via " + channel}
+6. ${channel === "voice" ? "**Auto-callback**: If user hangs up, /api/complete will call them back automatically" : "**Cross-channel**: You can still use /api/sms or /api/whatsapp to send messages"}
+${channel === "voice" ? `7. **WhatsApp listening**: If user says "continue on WhatsApp" or similar, use /api/whatsapp-wait in a loop to listen for their WhatsApp messages instead of completing` : ""}
 
 ## Example Flow
 
+${channel === "voice" ? `### Normal flow:
 1. User says "create a todo app"
 2. You ask: curl .../api/ask/... -d '{"message": "What tech stack? React, Vue, or vanilla JS?"}'
 3. User responds: "React"
@@ -163,7 +263,17 @@ curl -s -X POST ${this.apiBaseUrl}/api/whatsapp \\
 5. You create the files
 6. You complete: curl .../api/complete/... -d '{"summary": "Created React todo app in ./todo-app"}'
 
-Start now. ${context ? "This is a follow-up request - use your context from the previous task." : "Clarify if needed, then execute the task."}
+### WhatsApp continuation flow:
+1. User says "start the todo app and continue on WhatsApp"
+2. You start the app (npm run dev &)
+3. You say: curl .../api/say/... -d '{"message": "App running. Send me WhatsApp messages for more instructions."}'
+4. You loop: while true; do response=$(curl .../api/whatsapp-wait ...); if received, process and respond via /api/whatsapp; done
+5. User sends WhatsApp: "expose via localtunnel"
+6. You run localtunnel, respond via WhatsApp with URL` : `1. User sends "expose the dev server via localtunnel"
+2. You run: npx localtunnel --port 5173
+3. You respond via ${channel}: curl .../api/${channel} -d '{"message": "Done! URL: https://xxx.loca.lt"}'`}
+
+Start now. ${context ? "This is a follow-up request - use your context from the previous task." : "Execute the task."}
 `.trim();
 
     console.log(`[TaskExecutor] Starting task for ${conversationId}: ${initialTask.slice(0, 50)}...`);

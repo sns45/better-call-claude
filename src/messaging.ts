@@ -8,6 +8,7 @@ export interface MessagingConfig {
   phoneAccountSid: string;
   phoneAuthToken: string;
   phoneNumber: string;
+  whatsappNumber?: string;  // Separate WhatsApp number (e.g., Twilio Sandbox)
 }
 
 export interface InboundMessageData {
@@ -186,11 +187,18 @@ export class MessagingManager {
       `${this.config.phoneAccountSid}:${this.config.phoneAuthToken}`
     ).toString("base64");
 
+    // Use separate WhatsApp number if configured (e.g., for Twilio Sandbox)
+    const fromNumber = this.config.whatsappNumber || this.config.phoneNumber;
+
+    console.log(`[Messaging] WhatsApp config: whatsappNumber="${this.config.whatsappNumber}", phoneNumber="${this.config.phoneNumber}", using="${fromNumber}"`);
+
     // Twilio WhatsApp requires "whatsapp:" prefix
     const whatsappTo = to.startsWith("whatsapp:") ? to : `whatsapp:${to}`;
-    const whatsappFrom = this.config.phoneNumber.startsWith("whatsapp:")
-      ? this.config.phoneNumber
-      : `whatsapp:${this.config.phoneNumber}`;
+    const whatsappFrom = fromNumber.startsWith("whatsapp:")
+      ? fromNumber
+      : `whatsapp:${fromNumber}`;
+
+    console.log(`[Messaging] Twilio WhatsApp: From=${whatsappFrom}, To=${whatsappTo}`);
 
     const response = await fetch(
       `https://api.twilio.com/2010-04-01/Accounts/${this.config.phoneAccountSid}/Messages.json`,

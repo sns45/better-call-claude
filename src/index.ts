@@ -25,6 +25,7 @@ import { MessagingManager } from "./messaging.js";
 import { WebhookSecurity } from "./webhook-security.js";
 import { createPhoneAPI } from "./phone-api.js";
 import { TaskExecutor } from "./task-executor.js";
+import { updateTwilioWebhooks } from "./twilio-webhook-updater.js";
 
 // Configuration
 const config = {
@@ -32,6 +33,7 @@ const config = {
   phoneAccountSid: process.env.BETTERCALLCLAUDE_PHONE_ACCOUNT_SID || "",
   phoneAuthToken: process.env.BETTERCALLCLAUDE_PHONE_AUTH_TOKEN || "",
   phoneNumber: process.env.BETTERCALLCLAUDE_PHONE_NUMBER || "",
+  whatsappNumber: process.env.BETTERCALLCLAUDE_WHATSAPP_NUMBER || "",  // Separate WhatsApp number (e.g., Twilio Sandbox)
   userPhoneNumber: process.env.BETTERCALLCLAUDE_USER_PHONE_NUMBER || "",
   openaiApiKey: process.env.BETTERCALLCLAUDE_OPENAI_API_KEY || "",
   transport: (process.env.BETTERCALLCLAUDE_TRANSPORT || "ngrok") as TransportType,
@@ -326,6 +328,46 @@ app.post("/webhook/:provider/whatsapp", async (c) => {
       // Add the message
       conversationManager.addMessage(conversation.id, "user", message.content);
       console.log(`[WhatsApp] Added message to conversation ${conversation.id}`);
+
+      // Priority 1: Check if there's a Claude session waiting for WhatsApp messages
+      if (phoneAPI.hasPendingWhatsAppWait()) {
+        const wasResolved = phoneAPI.resolveWhatsAppWait(message.content);
+        if (wasResolved) {
+          console.log(`[WhatsApp] Routed message to waiting Claude session`);
+          return c.text("OK", 200);
+        }
+      }
+
+      // Priority 2: Check if there's a pending question from spawned Claude
+      const wasQuestionPending = phoneAPI.resolveQuestion(conversation.id, message.content);
+
+      if (!wasQuestionPending) {
+        // No pending question - check if we should spawn Claude
+        const existingExecution = taskExecutor.getExecution(conversation.id);
+
+        // Only skip spawning if there's an ACTIVE execution (still running)
+        if (!existingExecution || existingExecution.status !== "running") {
+          // Find context from latest voice call (if any)
+          const voiceContext = taskExecutor.getLatestTaskContext();
+
+          if (voiceContext) {
+            console.log(`[WhatsApp] Found voice context from ${voiceContext.conversationId?.slice(0, 8)}: ${voiceContext.originalTask.slice(0, 50)}...`);
+          }
+
+          console.log(`[WhatsApp] Spawning Claude for: ${message.content}`);
+          taskExecutor.executeTask(
+            conversation.id,
+            message.content,
+            voiceContext?.workingDir || process.cwd(),
+            voiceContext,  // Pass voice call context
+            "whatsapp"     // Channel type for response
+          );
+        } else {
+          console.log(`[WhatsApp] Claude already running for ${conversation.id.slice(0, 8)}`);
+        }
+      } else {
+        console.log(`[WhatsApp] Resolved pending question for ${conversation.id.slice(0, 8)}`);
+      }
     }
 
     return c.text("OK", 200);
@@ -1137,11 +1179,30 @@ async function main(): Promise<void> {
   publicUrl = await transportManager.start(config.port);
   console.log(`[Init] Transport ready: ${publicUrl}`);
 
+  // Auto-update Twilio webhooks if using Twilio provider
+  if (config.phoneProvider === "twilio") {
+    await updateTwilioWebhooks(
+      {
+        accountSid: config.phoneAccountSid,
+        authToken: config.phoneAuthToken,
+        phoneNumber: config.phoneNumber,
+        whatsappNumber: config.whatsappNumber || undefined,
+      },
+      publicUrl
+    );
+  }
+
   // Initialize managers
   phoneCallManager = new PhoneCallManager(config);
-  messagingManager = new MessagingManager(config);
+  messagingManager = new MessagingManager({
+    ...config,
+    whatsappNumber: config.whatsappNumber || undefined,  // Pass WhatsApp number if configured
+  });
   console.log(`[Init] Phone provider: ${config.phoneProvider}`);
   console.log(`[Init] Channels enabled: Voice, SMS, WhatsApp`);
+  if (config.whatsappNumber) {
+    console.log(`[Init] WhatsApp number: ${config.whatsappNumber} (separate from voice)`);
+  }
 
   // Initialize task executor and phone API for autonomous operation
   taskExecutor = new TaskExecutor(publicUrl);

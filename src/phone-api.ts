@@ -20,6 +20,11 @@ export interface PhoneAPIConfig {
   userPhoneNumber: string;
 }
 
+export interface PendingWhatsAppWait {
+  resolve: (message: string) => void;
+  timeout: ReturnType<typeof setTimeout>;
+}
+
 export function createPhoneAPI(
   phoneCallManager: PhoneCallManager,
   conversationManager: ConversationManager,
@@ -30,6 +35,7 @@ export function createPhoneAPI(
 ) {
   const api = new Hono();
   const pendingQuestions = new Map<string, PendingQuestion>();
+  const pendingWhatsAppWaits = new Map<string, PendingWhatsAppWait>();
 
   /**
    * POST /api/ask/:conversationId
@@ -271,6 +277,45 @@ export function createPhoneAPI(
   });
 
   /**
+   * POST /api/whatsapp-wait
+   * Wait for an incoming WhatsApp message from the user (blocking)
+   * Body: { "timeout_ms": 300000 } (optional, default 5 minutes)
+   * Returns: { "message": "user's message", "received": true }
+   *
+   * Use this to keep a Claude session alive and listen for WhatsApp messages.
+   * Call in a loop to continuously handle WhatsApp messages.
+   */
+  api.post("/whatsapp-wait", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const timeoutMs = body.timeout_ms || 300000; // 5 minutes default
+
+    console.log(`[PhoneAPI] WhatsApp-Wait: Waiting for message (timeout: ${timeoutMs}ms)`);
+
+    // Generate a unique wait ID for this request
+    const waitId = crypto.randomUUID();
+
+    // Create a promise that resolves when a WhatsApp message arrives
+    const messagePromise = new Promise<string | null>((resolve) => {
+      const timeout = setTimeout(() => {
+        pendingWhatsAppWaits.delete(waitId);
+        resolve(null);
+      }, timeoutMs);
+
+      pendingWhatsAppWaits.set(waitId, { resolve: (msg) => resolve(msg), timeout });
+    });
+
+    const message = await messagePromise;
+
+    if (message) {
+      console.log(`[PhoneAPI] WhatsApp-Wait: Received message: ${message.slice(0, 50)}...`);
+      return c.json({ message, received: true });
+    } else {
+      console.log(`[PhoneAPI] WhatsApp-Wait: Timeout - no message received`);
+      return c.json({ message: null, received: false, reason: "timeout" });
+    }
+  });
+
+  /**
    * Resolve a pending question when user responds
    * Called by the gather webhook handler
    */
@@ -285,5 +330,31 @@ export function createPhoneAPI(
     return false;
   }
 
-  return { api, resolveQuestion };
+  /**
+   * Resolve a pending WhatsApp wait when user sends a message
+   * Called by the WhatsApp webhook handler
+   * Returns true if a wait was resolved
+   */
+  function resolveWhatsAppWait(message: string): boolean {
+    // Resolve the first (oldest) pending wait
+    const firstEntry = pendingWhatsAppWaits.entries().next();
+    if (!firstEntry.done) {
+      const [waitId, pending] = firstEntry.value;
+      clearTimeout(pending.timeout);
+      pending.resolve(message);
+      pendingWhatsAppWaits.delete(waitId);
+      console.log(`[PhoneAPI] Resolved WhatsApp wait ${waitId.slice(0, 8)} with message`);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Check if there's a pending WhatsApp wait
+   */
+  function hasPendingWhatsAppWait(): boolean {
+    return pendingWhatsAppWaits.size > 0;
+  }
+
+  return { api, resolveQuestion, resolveWhatsAppWait, hasPendingWhatsAppWait };
 }

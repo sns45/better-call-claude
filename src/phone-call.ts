@@ -438,25 +438,27 @@ export class PhoneCallManager {
 
   /**
    * Generate TwiML for answering a call with a message and gathering input
+   * Uses DTMF termination (press # when done) for better conversation flow
    */
   generateAnswerTwiML(message: string, gatherUrl: string): string {
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="alice">${this.escapeXml(message)}</Say>
-  <Gather input="speech" action="${this.escapeXml(gatherUrl)}" speechTimeout="${Math.round(this.config.sttSilenceDurationMs / 1000)}" language="en-US">
-    <Say voice="alice">Please speak after the tone.</Say>
+  <Gather input="speech dtmf" action="${this.escapeXml(gatherUrl)}" finishOnKey="#" speechTimeout="3" maxSpeechTime="60" language="en-US">
+    <Say voice="alice">Press pound when you're finished speaking.</Say>
   </Gather>
 </Response>`;
   }
 
   /**
    * Generate TwiML for gathering speech input
+   * Uses DTMF termination (press # when done) for better conversation flow
    */
   generateGatherTwiML(message: string, callbackUrl: string): string {
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="alice">${this.escapeXml(message)}</Say>
-  <Gather input="speech" action="${this.escapeXml(callbackUrl)}" speechTimeout="${Math.round(this.config.sttSilenceDurationMs / 1000)}" language="en-US" />
+  <Gather input="speech dtmf" action="${this.escapeXml(callbackUrl)}" finishOnKey="#" speechTimeout="3" maxSpeechTime="60" language="en-US" />
 </Response>`;
   }
 
