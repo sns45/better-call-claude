@@ -354,19 +354,44 @@ Start now. ${context ? "This is a follow-up request - use your context from the 
   }
 
   /**
-   * Clean up old executions
+   * Clean up old executions and zombie processes
+   * @param maxAgeMs Maximum age for completed/failed executions (default: 1 hour)
+   * @param maxRunningMs Maximum runtime for "running" processes before being killed (default: 30 minutes)
    */
-  cleanup(maxAgeMs: number = 3600000): void {
+  cleanup(maxAgeMs: number = 3600000, maxRunningMs: number = 1800000): void {
     const now = Date.now();
     const toDelete: string[] = [];
 
     this.executions.forEach((execution, id) => {
-      if (execution.status !== "running" &&
-          now - execution.startedAt.getTime() > maxAgeMs) {
+      const age = now - execution.startedAt.getTime();
+      
+      // Clean up old completed/failed executions
+      if (execution.status !== "running" && age > maxAgeMs) {
+        toDelete.push(id);
+      } 
+      // Kill zombie processes stuck in "running" state too long
+      else if (execution.status === "running" && age > maxRunningMs) {
+        console.log(`[TaskExecutor] Killing zombie process ${id.slice(0, 8)} after ${maxRunningMs}ms`);
+        execution.process.kill("SIGTERM");
+        execution.status = "failed";
         toDelete.push(id);
       }
     });
 
     toDelete.forEach(id => this.executions.delete(id));
+  }
+
+  /**
+   * Kill all running processes
+   * Used during graceful shutdown to prevent orphaned processes
+   */
+  killAllRunning(): void {
+    for (const [id, execution] of this.executions) {
+      if (execution.status === "running") {
+        console.log(`[TaskExecutor] Killing running process ${id.slice(0, 8)}`);
+        execution.process.kill("SIGTERM");
+        execution.status = "failed";
+      }
+    }
   }
 }

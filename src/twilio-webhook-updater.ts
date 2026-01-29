@@ -1,6 +1,6 @@
 /**
  * Twilio Webhook Updater
- * Automatically updates Twilio webhook URLs when ngrok URL changes
+ * Automatically updates Twilio webhook URLs when public URL changes
  */
 
 export interface TwilioWebhookConfig {

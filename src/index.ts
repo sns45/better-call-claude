@@ -13,7 +13,7 @@ import {
 import { Hono } from "hono";
 import { serve } from "bun";
 
-import { TransportManager, type TransportType } from "./transport.js";
+import { TransportManager } from "./transport.js";
 import { PhoneCallManager } from "./phone-call.js";
 import {
   ConversationManager,
@@ -36,18 +36,11 @@ const config = {
   whatsappNumber: process.env.BETTERCALLCLAUDE_WHATSAPP_NUMBER || "",  // Separate WhatsApp number (e.g., Twilio Sandbox)
   userPhoneNumber: process.env.BETTERCALLCLAUDE_USER_PHONE_NUMBER || "",
   openaiApiKey: process.env.BETTERCALLCLAUDE_OPENAI_API_KEY || "",
-  transport: (process.env.BETTERCALLCLAUDE_TRANSPORT || "ngrok") as TransportType,
   port: parseInt(process.env.BETTERCALLCLAUDE_PORT || "3333"),
   ttsVoice: process.env.BETTERCALLCLAUDE_TTS_VOICE || "onyx",
+  telnyxVoice: process.env.BETTERCALLCLAUDE_TELNYX_VOICE || "female",
   transcriptTimeoutMs: parseInt(process.env.BETTERCALLCLAUDE_TRANSCRIPT_TIMEOUT_MS || "180000"),
   sttSilenceDurationMs: parseInt(process.env.BETTERCALLCLAUDE_STT_SILENCE_DURATION_MS || "800"),
-  // ngrok specific
-  ngrokAuthtoken: process.env.BETTERCALLCLAUDE_NGROK_AUTHTOKEN || "",
-  ngrokDomain: process.env.BETTERCALLCLAUDE_NGROK_DOMAIN || "",
-  // Tailscale specific
-  tailscaleHostname: process.env.BETTERCALLCLAUDE_TAILSCALE_HOSTNAME || "",
-  tailscaleUseFunnel: process.env.BETTERCALLCLAUDE_TAILSCALE_USE_FUNNEL === "true",
-  tailscaleFunnelPort: parseInt(process.env.BETTERCALLCLAUDE_TAILSCALE_FUNNEL_PORT || "443"),
   // Security
   telnyxPublicKey: process.env.BETTERCALLCLAUDE_TELNYX_PUBLIC_KEY || "",
 };
@@ -66,10 +59,6 @@ function validateConfig(): void {
     if (!config[key as keyof typeof config]) {
       throw new Error(`Missing required environment variable: BETTERCALLCLAUDE_${key.toUpperCase()}`);
     }
-  }
-
-  if (config.transport === "ngrok" && !config.ngrokAuthtoken) {
-    throw new Error("BETTERCALLCLAUDE_NGROK_AUTHTOKEN is required when using ngrok transport");
   }
 }
 
@@ -103,8 +92,13 @@ app.use("/webhook/*", async (c, next) => {
     try {
       (c as any).parsedBody = JSON.parse(body || "{}");
     } catch {
-      // For form-encoded data (Twilio)
-      (c as any).parsedBody = Object.fromEntries(new URLSearchParams(body));
+      try {
+        // For form-encoded data (Twilio)
+        (c as any).parsedBody = Object.fromEntries(new URLSearchParams(body));
+      } catch (parseError) {
+        console.error("[Security] Failed to parse webhook body:", parseError);
+        return c.json({ error: "Invalid request body" }, 400);
+      }
     }
     await next();
   } else {
@@ -127,6 +121,18 @@ app.post("/webhook/:provider/inbound", async (c) => {
     const callData = phoneCallManager.parseInboundWebhook(provider, body);
 
     if (callData.type === "call.initiated") {
+      // Check for existing conversation to prevent duplicates (race condition fix)
+      const existingConversation = conversationManager.getConversationByProviderId(callData.providerCallId);
+      if (existingConversation) {
+        console.log(`[Inbound] Using existing conversation: ${existingConversation.id}`);
+        // Use existing conversation ID for the response
+        const twiml = phoneCallManager.generateAnswerTwiML(
+          "Hello! This is Claude. What would you like me to work on?",
+          `${publicUrl}/webhook/${provider}/gather/${existingConversation.id}`
+        );
+        return c.text(twiml, 200, { "Content-Type": "text/xml" });
+      }
+
       // Create a new conversation for inbound call
       const conversationId = crypto.randomUUID();
       conversationManager.createConversation(
@@ -403,7 +409,7 @@ app.post("/webhook/:provider/message-status/:conversationId", async (c) => {
 app.get("/health", (c) => {
   return c.json({
     status: "ok",
-    transport: config.transport,
+    transport: "tailscale",
     publicUrl,
     activeConversations: {
       voice: conversationManager.getActiveConversations(ChannelType.VOICE).length,
@@ -1174,10 +1180,10 @@ async function main(): Promise<void> {
   validateConfig();
   console.log("[Init] Configuration validated");
 
-  // Initialize transport
-  transportManager = new TransportManager(config);
+  // Initialize transport (Tailscale Funnel)
+  transportManager = new TransportManager();
   publicUrl = await transportManager.start(config.port);
-  console.log(`[Init] Transport ready: ${publicUrl}`);
+  console.log(`[Init] Tailscale Funnel ready: ${publicUrl}`);
 
   // Auto-update Twilio webhooks if using Twilio provider
   if (config.phoneProvider === "twilio") {
@@ -1243,6 +1249,10 @@ async function main(): Promise<void> {
   // Graceful shutdown
   process.on("SIGINT", async () => {
     console.log("[Shutdown] Received SIGINT, cleaning up...");
+
+    // Kill all running Claude processes
+    taskExecutor.killAllRunning();
+
     httpServer.stop();
     await transportManager.stop();
     await server.close();

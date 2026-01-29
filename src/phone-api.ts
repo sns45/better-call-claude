@@ -6,7 +6,7 @@
 
 import { Hono } from "hono";
 import type { PhoneCallManager } from "./phone-call.js";
-import type { ConversationManager } from "./conversation-manager.js";
+import { ConversationManager, ChannelType, ConversationDirection, ConversationState } from "./conversation-manager.js";
 import type { TaskExecutor } from "./task-executor.js";
 import type { MessagingManager } from "./messaging.js";
 
@@ -82,7 +82,7 @@ export function createPhoneAPI(
       // Call may have ended - clean up and return
       console.log(`[PhoneAPI] Ask failed (call may have ended): ${error}`);
       pendingQuestions.delete(conversationId);
-      conversationManager.updateState(conversationId, "ended" as any);
+      conversationManager.updateState(conversationId, ConversationState.ENDED);
       return c.json({
         response: "[call ended - proceed with your best judgment or use defaults]",
         userOnCall: false
@@ -123,7 +123,7 @@ export function createPhoneAPI(
     } catch (error) {
       // Call may have ended
       console.log(`[PhoneAPI] Say failed (call may have ended): ${error}`);
-      conversationManager.updateState(conversationId, "ended" as any);
+      conversationManager.updateState(conversationId, ConversationState.ENDED);
       return c.json({ success: true, delivered: false, reason: "call ended" });
     }
   });
@@ -162,7 +162,7 @@ export function createPhoneAPI(
         // Speaking failed - user probably hung up but we didn't get the status webhook
         // Fall through to callback
         console.log(`[PhoneAPI] Speak failed (user likely hung up): ${error}`);
-        conversationManager.updateState(conversationId, "ended" as any);
+        conversationManager.updateState(conversationId, ConversationState.ENDED);
       }
     }
 
@@ -205,6 +205,16 @@ export function createPhoneAPI(
     console.log(`[PhoneAPI] Initiating call: ${message}`);
 
     const conversationId = crypto.randomUUID();
+
+    // Create conversation record BEFORE initiating call to track the conversation
+    conversationManager.createConversation(
+      conversationId,
+      ChannelType.VOICE,
+      ConversationDirection.OUTBOUND,
+      "", // Provider ID will be updated when call is initiated
+      { to: config.userPhoneNumber }
+    );
+
     await phoneCallManager.initiateCall(
       config.userPhoneNumber,
       message,

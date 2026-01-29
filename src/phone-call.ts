@@ -14,6 +14,7 @@ export interface PhoneCallConfig {
   phoneNumber: string;
   openaiApiKey: string;
   ttsVoice: string;
+  telnyxVoice?: string;
   sttSilenceDurationMs: number;
 }
 
@@ -179,7 +180,7 @@ export class PhoneCallManager {
       await this.telnyx.calls.speak({
         call_control_id: callControlId,
         payload: message,
-        voice: "female",
+        voice: this.config.telnyxVoice || "female",
         language: "en-US",
       });
 

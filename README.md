@@ -29,10 +29,10 @@
 - **📱 WhatsApp** - Full WhatsApp Business integration
 - **🔄 Cross-channel context** - Start on voice, continue on WhatsApp seamlessly
 - **🔗 Persistent sessions** - Claude stays alive listening for WhatsApp messages
-- **🔒 Secure transports** - Choose ngrok (easy) or Tailscale (enterprise-grade)
+- **🔒 Secure transport** - Tailscale Funnel with guided auto-setup
 - **🗣️ Natural conversations** - Multi-turn interactions across all channels
 - **🔧 Tool composable** - Claude can use other tools while communicating
-- **⚡ Auto-webhook updates** - Twilio webhooks auto-update when ngrok URL changes
+- **⚡ Auto-webhook updates** - Twilio webhooks auto-update when URL changes
 - **⌚ Works anywhere** - Phone, smartwatch, or any device
 
 > ### ⚠️ Testing Status
@@ -58,7 +58,7 @@
 |---------|---------|------|
 | [Telnyx](https://telnyx.com) or [Twilio](https://twilio.com) | Phone calls | ~$1/mo + usage |
 | [OpenAI](https://platform.openai.com) | Speech-to-text & text-to-speech | ~$0.03/min |
-| [ngrok](https://ngrok.com) **OR** [Tailscale](https://tailscale.com) | Webhook tunneling | Free tier available |
+| [Tailscale](https://tailscale.com) | Webhook tunneling | Free |
 
 ### 2. Set Up Phone Provider
 
@@ -99,34 +99,32 @@
 
 </details>
 
-### 3. Choose Your Transport
+### 3. Set Up Tailscale Funnel (for webhooks)
 
-<details>
-<summary><b>Option A: ngrok (Recommended for beginners)</b></summary>
+Tailscale Funnel provides free, stable public URLs for receiving webhooks from your phone provider.
 
-**Pros:** Instant setup, works everywhere, no network configuration
+> **Why Tailscale?** Free unlimited tunnels, stable URLs (no random subdomains), enterprise-grade security.
+>
+> **Path:** Better Call Claude uses `/bcc` path (e.g., `https://your-hostname.ts.net/bcc`) to avoid conflicts with other services.
 
-1. Sign up at [ngrok.com](https://ngrok.com)
-2. Copy your auth token from the dashboard
-3. Set `BETTERCALLCLAUDE_TRANSPORT=ngrok` in your config
+**First-time setup (automated):**
 
-</details>
+When you first start the MCP server, it will guide you through setup:
 
-<details>
-<summary><b>Option B: Tailscale (Recommended for enterprise/security)</b></summary>
-
-**Pros:** No public URLs, works behind firewalls, stable addresses, enterprise-grade security
-
-**Requirements:** Tailscale installed on both your computer AND your phone provider must support private webhooks (or use Tailscale Funnel)
-
-1. Install [Tailscale](https://tailscale.com/download) on your machine
-2. Enable Tailscale Funnel for public webhook access:
+1. **Install Tailscale** (if not installed):
    ```bash
-   tailscale funnel 3333
-   ```
-3. Or use a relay server on your Tailscale network
+   # macOS
+   brew install tailscale
 
-</details>
+   # Linux
+   curl -fsSL https://tailscale.com/install.sh | sh
+   ```
+
+2. **Authenticate** - The server will auto-run `tailscale up` and open your browser
+
+3. **Enable Funnel** - Visit the URL shown in the terminal to enable Funnel on your tailnet (one-time admin step)
+
+That's it! The server handles the rest automatically.
 
 ### 4. Install Better Call Claude
 
@@ -155,14 +153,14 @@ Add to `~/.claude/settings.json`:
         "BETTERCALLCLAUDE_PHONE_AUTH_TOKEN": "your-api-key",
         "BETTERCALLCLAUDE_PHONE_NUMBER": "+15551234567",
         "BETTERCALLCLAUDE_USER_PHONE_NUMBER": "+15559876543",
-        "BETTERCALLCLAUDE_OPENAI_API_KEY": "sk-...",
-        "BETTERCALLCLAUDE_TRANSPORT": "ngrok",
-        "BETTERCALLCLAUDE_NGROK_AUTHTOKEN": "your-ngrok-token"
+        "BETTERCALLCLAUDE_OPENAI_API_KEY": "sk-..."
       }
     }
   }
 }
 ```
+
+> **Note:** Tailscale setup is automatic on first run. The server will guide you through installation and authentication if needed.
 
 Restart Claude Code. Done!
 
@@ -181,22 +179,12 @@ Restart Claude Code. Done!
 | `BETTERCALLCLAUDE_WHATSAPP_NUMBER` | WhatsApp number if different (e.g., Twilio Sandbox) |
 | `BETTERCALLCLAUDE_USER_PHONE_NUMBER` | Your personal phone number |
 | `BETTERCALLCLAUDE_OPENAI_API_KEY` | OpenAI API key for TTS/STT |
-| `BETTERCALLCLAUDE_TRANSPORT` | `ngrok` or `tailscale` |
 
-### Transport-Specific Variables
+### Tailscale (Optional)
 
-**For ngrok:**
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BETTERCALLCLAUDE_NGROK_AUTHTOKEN` | - | ngrok auth token (required) |
-| `BETTERCALLCLAUDE_NGROK_DOMAIN` | - | Custom domain (paid feature) |
-
-**For Tailscale:**
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `BETTERCALLCLAUDE_TAILSCALE_HOSTNAME` | auto | Your Tailscale hostname |
-| `BETTERCALLCLAUDE_TAILSCALE_USE_FUNNEL` | `false` | Use Tailscale Funnel for public access |
-| `BETTERCALLCLAUDE_TAILSCALE_FUNNEL_PORT` | `443` | Funnel port |
+| `TAILSCALE_HOSTNAME` | auto-detected | Override Tailscale hostname |
 
 ### Optional Variables
 
@@ -320,7 +308,7 @@ For testing, you can use Twilio's WhatsApp Sandbox instead of a full WhatsApp Bu
 
 1. Go to [Twilio Console > Messaging > WhatsApp Sandbox](https://console.twilio.com/us1/develop/sms/try-it-out/whatsapp-learn)
 2. Send the join code to the sandbox number (+1 415 523 8886)
-3. Set the webhook URL to `{your-ngrok-url}/webhook/twilio/whatsapp`
+3. Set the webhook URL to `{your-tailscale-url}/bcc/webhook/twilio/whatsapp`
 4. Add to your config:
    ```json
    "BETTERCALLCLAUDE_WHATSAPP_NUMBER": "+14155238886"
@@ -345,7 +333,7 @@ For testing, you can use Twilio's WhatsApp Sandbox instead of a full WhatsApp Bu
                                            ▼
                             ┌──────────────────────────────────┐
                             │     Transport Layer              │
-                            │  (ngrok / Tailscale Funnel)      │
+                            │     (Tailscale Funnel)           │
                             └──────────────┬───────────────────┘
                                            │
                                            ▼
@@ -531,23 +519,17 @@ const history = await get_conversation_history({
 | Service | Cost |
 |---------|------|
 | Phone number | ~$1/month |
-| **ngrok** | Free tier available |
-| **Tailscale** | Free for personal use |
+| **Tailscale Funnel** | Free |
 
 ---
 
 ## Security Considerations
 
-### With ngrok
-- Public URLs can be discovered (use custom domains for production)
+### Tailscale Funnel Security
+- Funnel creates a public endpoint but traffic routes through Tailscale's secure network
+- Integrates with SSO/SCIM for enterprise use
+- Audit logs available in Tailscale admin console
 - Webhook signatures verified by default
-- Consider IP allowlisting in ngrok dashboard
-
-### With Tailscale
-- No public exposure by default
-- Funnel creates public endpoint but traffic routes through Tailscale
-- Integrates with SSO/SCIM for enterprise
-- Audit logs available
 
 ### General
 - Phone numbers are never logged
@@ -563,7 +545,7 @@ const history = await get_conversation_history({
 #### Claude doesn't answer calls
 1. Check the MCP server is running: `claude --debug`
 2. Verify webhook URL is configured in provider dashboard
-3. Ensure transport (ngrok/Tailscale) is active
+3. Ensure Tailscale Funnel is active
 
 #### Can't make outbound calls
 1. Verify `BETTERCALLCLAUDE_USER_PHONE_NUMBER` is correct
@@ -599,17 +581,20 @@ const history = await get_conversation_history({
 2. Check WhatsApp Business approval status
 3. Verify message template compliance (for outbound-first messages)
 
-### Transport Issues
+### Tailscale Issues
 
-#### Tailscale Funnel not working
-1. Ensure Funnel is enabled: `tailscale funnel status`
-2. Check ACLs allow Funnel
-3. Verify HTTPS certificate is valid
+#### "Tailscale not running"
+1. macOS: Open the Tailscale app from Applications
+2. Linux: `sudo systemctl start tailscaled && tailscale up`
 
-#### ngrok tunnel disconnecting
-1. Upgrade to paid plan for stable URLs
-2. Use custom domain: `BETTERCALLCLAUDE_NGROK_DOMAIN`
-3. Check ngrok dashboard for connection limits
+#### "Funnel not enabled"
+1. Visit the URL shown in the terminal to enable Funnel
+2. Or go to https://login.tailscale.com/admin/acls and add Funnel capability
+
+#### Funnel starts but webhooks don't work
+1. Check `tailscale funnel status` shows `/bcc` pointing to your port
+2. Verify your phone provider webhook URL matches the Tailscale URL (with `/bcc` path)
+3. Test with `curl https://your-hostname.ts.net/bcc/health`
 
 ---
 
@@ -645,7 +630,7 @@ npx @anthropics/mcp-inspector
 - **Web Framework:** [Hono](https://hono.dev) - Lightweight, fast web framework
 - **Phone:** [Telnyx](https://telnyx.com) / [Twilio](https://twilio.com) - Telephony APIs
 - **Speech:** [OpenAI Whisper](https://openai.com) - STT/TTS
-- **Transport:** [ngrok](https://ngrok.com) / [Tailscale](https://tailscale.com) - Tunneling
+- **Transport:** [Tailscale Funnel](https://tailscale.com/kb/1223/funnel) - Public URL tunneling
 - **Protocol:** [MCP](https://modelcontextprotocol.io) - Model Context Protocol
 
 ---

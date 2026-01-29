@@ -1,6 +1,6 @@
 {
   "name": "better-call-claude",
-  "version": "2.1.1",
+  "version": "3.0.0",
   "mcpName": "io.github.sns45/better-call-claude",
   "description": "Bi-directional communication for Claude Code via Voice Calls, SMS, and WhatsApp. Cross-channel context sharing between voice and WhatsApp.",
   "type": "module",
@@ -22,7 +22,6 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "@ngrok/ngrok": "^1.4.1",
     "hono": "^4.6.0",
     "openai": "^4.77.0",
     "telnyx": "^5.0.0"

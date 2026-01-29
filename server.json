@@ -45,11 +45,39 @@
           "name": "BETTERCALLCLAUDE_PHONE_AUTH_TOKEN"
         },
         {
-          "description": "ngrok auth token for public URL tunneling",
+          "description": "Your personal phone number in E.164 format (for outbound calls/SMS)",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": false,
+          "name": "BETTERCALLCLAUDE_USER_PHONE_NUMBER"
+        },
+        {
+          "description": "OpenAI API key for speech-to-text (Whisper) and text-to-speech",
           "isRequired": true,
           "format": "string",
           "isSecret": true,
-          "name": "NGROK_AUTHTOKEN"
+          "name": "BETTERCALLCLAUDE_OPENAI_API_KEY"
+        },
+        {
+          "description": "WhatsApp number if different from phone number (e.g., Twilio Sandbox)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "BETTERCALLCLAUDE_WHATSAPP_NUMBER"
+        },
+        {
+          "description": "Local HTTP server port",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "BETTERCALLCLAUDE_PORT"
+        },
+        {
+          "description": "Override Tailscale hostname for webhook URL",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "TAILSCALE_HOSTNAME"
         }
       ]
     }
