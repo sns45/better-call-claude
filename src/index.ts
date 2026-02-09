@@ -1195,20 +1195,29 @@ async function main(): Promise<void> {
   app.route("/api", phoneAPI.api);
   console.log(`[Init] Autonomous phone API ready at ${publicUrl}/api/*`);
 
-  // Start HTTP server
-  const httpServer = serve({
-    port: config.port,
-    fetch: app.fetch,
-  });
-  console.log(`[Init] HTTP server listening on port ${config.port}`);
-  console.log(`[Init] Webhooks:`);
-  console.log(`       Voice:    ${publicUrl}/webhook/${config.phoneProvider}/inbound`);
-  console.log(`       SMS:      ${publicUrl}/webhook/${config.phoneProvider}/sms`);
-  console.log(`       WhatsApp: ${publicUrl}/webhook/${config.phoneProvider}/whatsapp`);
-  console.log(`[Init] Phone API (for spawned Claude):`);
-  console.log(`       Ask:      POST ${publicUrl}/api/ask/:conversationId`);
-  console.log(`       Say:      POST ${publicUrl}/api/say/:conversationId`);
-  console.log(`       Complete: POST ${publicUrl}/api/complete/:conversationId`);
+  // Start HTTP server (skip if port is already in use — another instance may be running)
+  let httpServer: ReturnType<typeof serve> | null = null;
+  try {
+    httpServer = serve({
+      port: config.port,
+      fetch: app.fetch,
+    });
+    console.log(`[Init] HTTP server listening on port ${config.port}`);
+    console.log(`[Init] Webhooks:`);
+    console.log(`       Voice:    ${publicUrl}/webhook/${config.phoneProvider}/inbound`);
+    console.log(`       SMS:      ${publicUrl}/webhook/${config.phoneProvider}/sms`);
+    console.log(`       WhatsApp: ${publicUrl}/webhook/${config.phoneProvider}/whatsapp`);
+    console.log(`[Init] Phone API (for spawned Claude):`);
+    console.log(`       Ask:      POST ${publicUrl}/api/ask/:conversationId`);
+    console.log(`       Say:      POST ${publicUrl}/api/say/:conversationId`);
+    console.log(`       Complete: POST ${publicUrl}/api/complete/:conversationId`);
+  } catch (e: any) {
+    if (e?.code === "EADDRINUSE") {
+      console.log(`[Init] Port ${config.port} already in use — running in MCP-only mode (HTTP server skipped)`);
+    } else {
+      throw e;
+    }
+  }
 
   // Start MCP server
   const transport = new StdioServerTransport();
@@ -1222,7 +1231,7 @@ async function main(): Promise<void> {
     // Kill all running Claude processes
     taskExecutor.killAllRunning();
 
-    httpServer.stop();
+    httpServer?.stop();
     await transportManager.stop();
     await server.close();
     process.exit(0);

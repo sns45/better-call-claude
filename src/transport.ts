@@ -283,10 +283,76 @@ export class TransportManager {
     return hostname;
   }
 
+  /**
+   * Read current serve config to avoid overwriting other paths (e.g. /dc from dear-claude).
+   */
+  private async getServeConfig(): Promise<Record<string, any> | null> {
+    try {
+      const { stdout } = await execAsync("tailscale serve status --json 2>/dev/null");
+      const config = JSON.parse(stdout);
+      if (!config || Object.keys(config).length === 0) return null;
+      return config;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Set serve config by merging our /bcc path into existing config,
+   * preserving other paths (e.g. /dc from dear-claude).
+   */
+  private async setMergedFunnelConfig(port: number): Promise<void> {
+    const hostPort = `${this.hostname}:443`;
+    const existing = await this.getServeConfig() || {};
+
+    // Merge TCP
+    const tcp = existing.TCP || {};
+    tcp["443"] = { HTTPS: true };
+
+    // Merge Web handlers — preserve existing paths, add/update /bcc
+    const web = existing.Web || {};
+    const handlers = web[hostPort]?.Handlers || {};
+    handlers["/bcc"] = { Proxy: `http://127.0.0.1:${port}` };
+    web[hostPort] = { Handlers: handlers };
+
+    // Merge AllowFunnel
+    const allowFunnel = existing.AllowFunnel || {};
+    allowFunnel[hostPort] = true;
+
+    const merged = { ...existing, TCP: tcp, Web: web, AllowFunnel: allowFunnel };
+
+    // Write config atomically via stdin
+    const configJson = JSON.stringify(merged);
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn("tailscale", ["serve", "--set-raw"], {
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      let stderr = "";
+      child.stderr?.on("data", (d) => { stderr += d.toString(); });
+      child.on("close", (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`tailscale serve --set-raw failed (${code}): ${stderr}`));
+      });
+      child.on("error", reject);
+      child.stdin?.write(configJson);
+      child.stdin?.end();
+    });
+  }
+
   private async enableFunnel(port: number): Promise<void> {
     try {
-      // Use --bg flag to run funnel in background (persists after process exits)
-      // Use --set-path=/bcc to clearly differentiate from other services (e.g., dear-claude on /dc)
+      // Try merge-aware config first (preserves other paths like /dc)
+      try {
+        await this.setMergedFunnelConfig(port);
+        console.log("[Tailscale Funnel] Config merged — /bcc path set, other paths preserved");
+        return;
+      } catch (mergeErr) {
+        // --set-raw may not be available on older Tailscale versions; fall back to CLI
+        const msg = mergeErr instanceof Error ? mergeErr.message : String(mergeErr);
+        console.log(`[Tailscale] Merge-aware config failed (${msg}), falling back to CLI...`);
+      }
+
+      // Fallback: use --bg --set-path (may overwrite other paths on buggy versions)
       const { stdout, stderr } = await execAsync(`tailscale funnel --bg --set-path=/bcc ${port} 2>&1`);
       const output = stdout + stderr;
 
@@ -298,7 +364,6 @@ export class TransportManager {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
 
-      // Check for specific errors
       if (message.includes("not enabled") || message.includes("policy")) {
         this.printFunnelInstructions();
         throw new Error("Tailscale Funnel not enabled on your tailnet");
@@ -308,11 +373,38 @@ export class TransportManager {
     }
   }
 
+  /**
+   * Remove only our /bcc path, preserving other paths (e.g. /dc).
+   */
   async stop(): Promise<void> {
     if (this.port) {
-      console.log("[Tailscale] Stopping Funnel...");
+      console.log("[Tailscale] Removing /bcc path...");
       try {
-        await execAsync(`tailscale funnel --https=443 off`);
+        const existing = await this.getServeConfig();
+        if (existing) {
+          const hostPort = `${this.hostname}:443`;
+          const handlers = existing.Web?.[hostPort]?.Handlers;
+          if (handlers && handlers["/bcc"]) {
+            delete handlers["/bcc"];
+            // If no handlers left, remove the entire Web entry
+            if (Object.keys(handlers).length === 0) {
+              delete existing.Web[hostPort];
+              if (Object.keys(existing.Web).length === 0) delete existing.Web;
+              delete existing.AllowFunnel?.[hostPort];
+              if (existing.AllowFunnel && Object.keys(existing.AllowFunnel).length === 0) delete existing.AllowFunnel;
+              delete existing.TCP?.["443"];
+              if (existing.TCP && Object.keys(existing.TCP).length === 0) delete existing.TCP;
+            }
+            // Write back
+            const configJson = JSON.stringify(existing);
+            await new Promise<void>((resolve) => {
+              const child = spawn("tailscale", ["serve", "--set-raw"], { stdio: ["pipe", "ignore", "ignore"] });
+              child.on("close", () => resolve());
+              child.stdin?.write(configJson);
+              child.stdin?.end();
+            });
+          }
+        }
       } catch {
         // Ignore errors on cleanup
       }
