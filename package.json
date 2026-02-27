@@ -1,6 +1,6 @@
 {
   "name": "better-call-claude",
-  "version": "3.1.0",
+  "version": "3.1.1",
   "mcpName": "io.github.sns45/better-call-claude",
   "description": "Bi-directional communication for Claude Code via Voice Calls, SMS, and WhatsApp. Cross-channel context sharing between voice and WhatsApp.",
   "type": "module",
