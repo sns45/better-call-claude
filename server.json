@@ -6,12 +6,12 @@
     "url": "https://github.com/sns45/better-call-claude",
     "source": "github"
   },
-  "version": "3.1.0",
+  "version": "3.1.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "better-call-claude",
-      "version": "3.1.0",
+      "version": "3.1.1",
       "transport": {
         "type": "stdio"
       },
@@ -78,6 +78,27 @@
           "format": "string",
           "isSecret": false,
           "name": "TAILSCALE_HOSTNAME"
+        },
+        {
+          "description": "WhatsApp provider: set to 'baileys' for free WhatsApp via WebSocket (no Twilio needed)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "BETTERCALLCLAUDE_WHATSAPP_PROVIDER"
+        },
+        {
+          "description": "Path to Baileys auth state directory (default: data/baileys-auth)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "BETTERCALLCLAUDE_BAILEYS_AUTH_DIR"
+        },
+        {
+          "description": "Max WhatsApp chat history messages to retain (default: 50)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "BETTERCALLCLAUDE_WHATSAPP_CHAT_HISTORY_SIZE"
         }
       ]
     }
