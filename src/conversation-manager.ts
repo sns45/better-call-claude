@@ -76,7 +76,7 @@ export class ConversationManager {
     };
 
     this.conversations.set(id, conversation);
-    console.log(
+    console.error(
       `[Conversation] Created ${channel} ${direction} conversation ${id} (provider: ${providerConversationId})`
     );
 
@@ -148,7 +148,7 @@ export class ConversationManager {
       conversation.endedAt = new Date();
     }
 
-    console.log(`[Conversation] ${id} state updated to ${state}`);
+    console.error(`[Conversation] ${id} state updated to ${state}`);
   }
 
   /**
@@ -167,7 +167,7 @@ export class ConversationManager {
       timestamp: new Date(),
     });
 
-    console.log(
+    console.error(
       `[Conversation] ${id} [${conversation.channel}] message added: [${role}] ${content.slice(0, 50)}...`
     );
 
@@ -295,7 +295,7 @@ export class ConversationManager {
         now - conversation.endedAt.getTime() > maxAgeMs
       ) {
         this.conversations.delete(id);
-        console.log(`[Conversation] Cleaned up old conversation ${id}`);
+        console.error(`[Conversation] Cleaned up old conversation ${id}`);
       }
     }
   }

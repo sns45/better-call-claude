@@ -18,6 +18,9 @@ describe("config", () => {
     "BETTERCALLCLAUDE_TRANSCRIPT_TIMEOUT_MS",
     "BETTERCALLCLAUDE_STT_SILENCE_DURATION_MS",
     "BETTERCALLCLAUDE_TELNYX_PUBLIC_KEY",
+    "BETTERCALLCLAUDE_WHATSAPP_PROVIDER",
+    "BETTERCALLCLAUDE_WHATSAPP_CHAT_HISTORY_SIZE",
+    "BETTERCALLCLAUDE_BAILEYS_AUTH_DIR",
   ];
 
   beforeEach(() => {
@@ -76,6 +79,37 @@ describe("config", () => {
         openaiApiKey: "sk-test",
       };
       expect(() => validateConfig(config)).not.toThrow();
+    });
+  });
+
+  describe("whatsappChatHistorySize", () => {
+    it("defaults to 50 when no env var set", () => {
+      const config = loadConfig();
+      expect(config.whatsappChatHistorySize).toBe(50);
+    });
+
+    it("reads from env var", () => {
+      process.env.BETTERCALLCLAUDE_WHATSAPP_CHAT_HISTORY_SIZE = "100";
+      const config = loadConfig();
+      expect(config.whatsappChatHistorySize).toBe(100);
+    });
+
+    it("NaN env value results in NaN", () => {
+      process.env.BETTERCALLCLAUDE_WHATSAPP_CHAT_HISTORY_SIZE = "not-a-number";
+      const config = loadConfig();
+      expect(config.whatsappChatHistorySize).toBeNaN();
+    });
+  });
+
+  describe("Baileys-only validation", () => {
+    it("accepts minimal config with just userPhoneNumber and whatsappProvider", () => {
+      process.env.BETTERCALLCLAUDE_WHATSAPP_PROVIDER = "baileys";
+      process.env.BETTERCALLCLAUDE_USER_PHONE_NUMBER = "+1234567890";
+      const config = loadConfig();
+      expect(() => validateConfig(config)).not.toThrow();
+      expect(config.whatsappProvider).toBe("baileys");
+      expect(config.phoneAccountSid).toBe("");
+      expect(config.phoneAuthToken).toBe("");
     });
   });
 });

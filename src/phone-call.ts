@@ -62,7 +62,7 @@ export class PhoneCallManager {
     statusUrl: string,
     gatherUrl: string
   ): Promise<string> {
-    console.log(`[PhoneCall] Initiating call to ${to}`);
+    console.error(`[PhoneCall] Initiating call to ${to}`);
 
     if (this.config.phoneProvider === "telnyx") {
       return this.initiateTelnyxCall(to, message, statusUrl, gatherUrl);
@@ -96,7 +96,7 @@ export class PhoneCallManager {
         throw new Error("No call_control_id returned from Telnyx");
       }
 
-      console.log(`[PhoneCall] Telnyx call created: ${callControlId}`);
+      console.error(`[PhoneCall] Telnyx call created: ${callControlId}`);
 
       // The message will be spoken when the call is answered via webhook
       return callControlId;
@@ -142,7 +142,7 @@ export class PhoneCallManager {
     }
 
     const data = await response.json();
-    console.log(`[PhoneCall] Twilio call created: ${data.sid}`);
+    console.error(`[PhoneCall] Twilio call created: ${data.sid}`);
     return data.sid;
   }
 
@@ -156,7 +156,7 @@ export class PhoneCallManager {
     waitForResponse: boolean,
     gatherUrl?: string
   ): Promise<void> {
-    console.log(`[PhoneCall] Speaking to call ${providerCallId}: ${message.slice(0, 50)}...`);
+    console.error(`[PhoneCall] Speaking to call ${providerCallId}: ${message.slice(0, 50)}...`);
 
     if (this.config.phoneProvider === "telnyx") {
       await this.speakToTelnyxCall(providerCallId, message, waitForResponse);
@@ -184,7 +184,7 @@ export class PhoneCallManager {
         language: "en-US",
       });
 
-      console.log(`[PhoneCall] Spoke to Telnyx call ${callControlId}`);
+      console.error(`[PhoneCall] Spoke to Telnyx call ${callControlId}`);
 
       if (waitForResponse) {
         // Start gathering speech input
@@ -246,14 +246,14 @@ export class PhoneCallManager {
       throw new Error(`Twilio speak failed: ${error}`);
     }
 
-    console.log(`[PhoneCall] Spoke to Twilio call ${callSid}`);
+    console.error(`[PhoneCall] Spoke to Twilio call ${callSid}`);
   }
 
   /**
    * End an active call
    */
   async endCall(providerCallId: string): Promise<void> {
-    console.log(`[PhoneCall] Ending call ${providerCallId}`);
+    console.error(`[PhoneCall] Ending call ${providerCallId}`);
 
     if (this.config.phoneProvider === "telnyx") {
       await this.endTelnyxCall(providerCallId);
@@ -271,7 +271,7 @@ export class PhoneCallManager {
       await this.telnyx.calls.hangup({
         call_control_id: callControlId,
       });
-      console.log(`[PhoneCall] Telnyx call ${callControlId} ended`);
+      console.error(`[PhoneCall] Telnyx call ${callControlId} ended`);
     } catch (error) {
       console.error("[PhoneCall] Telnyx hangup error:", error);
       throw error;
@@ -302,7 +302,7 @@ export class PhoneCallManager {
       throw new Error(`Twilio hangup failed: ${error}`);
     }
 
-    console.log(`[PhoneCall] Twilio call ${callSid} ended`);
+    console.error(`[PhoneCall] Twilio call ${callSid} ended`);
   }
 
   /**

@@ -6,12 +6,12 @@
     "url": "https://github.com/sns45/better-call-claude",
     "source": "github"
   },
-  "version": "3.0.0",
+  "version": "3.1.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "better-call-claude",
-      "version": "3.0.0",
+      "version": "3.1.0",
       "transport": {
         "type": "stdio"
       },

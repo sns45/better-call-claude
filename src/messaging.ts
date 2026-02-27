@@ -5,6 +5,7 @@
 
 export interface MessagingConfig {
   phoneProvider: "telnyx" | "twilio";
+  whatsappProvider?: "baileys";
   phoneAccountSid: string;
   phoneAuthToken: string;
   phoneNumber: string;
@@ -29,9 +30,14 @@ export interface MessageStatusData {
 
 export class MessagingManager {
   private config: MessagingConfig;
+  private baileysClient: { sendMessage(to: string, text: string): Promise<string> } | null = null;
 
   constructor(config: MessagingConfig) {
     this.config = config;
+  }
+
+  setBaileysClient(client: { sendMessage(to: string, text: string): Promise<string> }): void {
+    this.baileysClient = client;
   }
 
   /**
@@ -51,7 +57,7 @@ export class MessagingManager {
       cleaned = "+1" + cleaned;
     }
 
-    console.log(`[Messaging] Normalized phone: ${phone} -> ${cleaned}`);
+    console.error(`[Messaging] Normalized phone: ${phone} -> ${cleaned}`);
     return cleaned;
   }
 
@@ -61,7 +67,7 @@ export class MessagingManager {
    */
   async sendSMS(to: string, message: string): Promise<string> {
     const normalizedTo = this.normalizePhoneNumber(to);
-    console.log(`[Messaging] Sending SMS to ${normalizedTo}: ${message.slice(0, 50)}...`);
+    console.error(`[Messaging] Sending SMS to ${normalizedTo}: ${message.slice(0, 50)}...`);
 
     if (this.config.phoneProvider === "telnyx") {
       return this.sendTelnyxSMS(normalizedTo, message);
@@ -92,7 +98,7 @@ export class MessagingManager {
 
     const data = await response.json();
     const messageId = data.data?.id;
-    console.log(`[Messaging] Telnyx SMS sent: ${messageId}`);
+    console.error(`[Messaging] Telnyx SMS sent: ${messageId}`);
     return messageId;
   }
 
@@ -104,7 +110,7 @@ export class MessagingManager {
     // Normalize the from number too
     const normalizedFrom = this.normalizePhoneNumber(this.config.phoneNumber);
 
-    console.log(`[Messaging] Twilio SMS: From=${normalizedFrom}, To=${to}`);
+    console.error(`[Messaging] Twilio SMS: From=${normalizedFrom}, To=${to}`);
 
     const response = await fetch(
       `https://api.twilio.com/2010-04-01/Accounts/${this.config.phoneAccountSid}/Messages.json`,
@@ -134,7 +140,7 @@ export class MessagingManager {
     }
 
     const data = await response.json();
-    console.log(`[Messaging] Twilio SMS sent: ${data.sid}, status: ${data.status}`);
+    console.error(`[Messaging] Twilio SMS sent: ${data.sid}, status: ${data.status}`);
     return data.sid;
   }
 
@@ -144,13 +150,44 @@ export class MessagingManager {
    */
   async sendWhatsApp(to: string, message: string): Promise<string> {
     const normalizedTo = this.normalizePhoneNumber(to);
-    console.log(`[Messaging] Sending WhatsApp to ${normalizedTo}: ${message.slice(0, 50)}...`);
+    console.error(`[Messaging] Sending WhatsApp to ${normalizedTo}: ${message.slice(0, 50)}...`);
+
+    // Baileys takes priority when configured
+    if (this.config.whatsappProvider === "baileys" && this.baileysClient) {
+      return this.sendBaileysWhatsApp(normalizedTo, message);
+    }
 
     if (this.config.phoneProvider === "telnyx") {
       return this.sendTelnyxWhatsApp(normalizedTo, message);
     } else {
       return this.sendTwilioWhatsApp(normalizedTo, message);
     }
+  }
+
+  private async sendBaileysWhatsApp(to: string, message: string): Promise<string> {
+    if (!this.baileysClient) {
+      throw new Error("Baileys client not initialized");
+    }
+
+    // Retry with backoff — Baileys WebSocket may temporarily disconnect
+    const maxRetries = 3;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const messageId = await this.baileysClient.sendMessage(to, message);
+        console.error(`[Messaging] Baileys WhatsApp sent: ${messageId}`);
+        return messageId;
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        if (attempt < maxRetries && errMsg.includes("not connected")) {
+          const delay = attempt * 3000; // 3s, 6s
+          console.error(`[Messaging] Baileys not connected, retry ${attempt}/${maxRetries} in ${delay}ms...`);
+          await new Promise(r => setTimeout(r, delay));
+        } else {
+          throw err;
+        }
+      }
+    }
+    throw new Error("Baileys send failed after retries");
   }
 
   private async sendTelnyxWhatsApp(to: string, message: string): Promise<string> {
@@ -178,7 +215,7 @@ export class MessagingManager {
 
     const data = await response.json();
     const messageId = data.data?.id;
-    console.log(`[Messaging] Telnyx WhatsApp sent: ${messageId}`);
+    console.error(`[Messaging] Telnyx WhatsApp sent: ${messageId}`);
     return messageId;
   }
 
@@ -190,7 +227,7 @@ export class MessagingManager {
     // Use separate WhatsApp number if configured (e.g., for Twilio Sandbox)
     const fromNumber = this.config.whatsappNumber || this.config.phoneNumber;
 
-    console.log(`[Messaging] WhatsApp config: whatsappNumber="${this.config.whatsappNumber}", phoneNumber="${this.config.phoneNumber}", using="${fromNumber}"`);
+    console.error(`[Messaging] WhatsApp config: whatsappNumber="${this.config.whatsappNumber}", phoneNumber="${this.config.phoneNumber}", using="${fromNumber}"`);
 
     // Twilio WhatsApp requires "whatsapp:" prefix
     const whatsappTo = to.startsWith("whatsapp:") ? to : `whatsapp:${to}`;
@@ -198,7 +235,7 @@ export class MessagingManager {
       ? fromNumber
       : `whatsapp:${fromNumber}`;
 
-    console.log(`[Messaging] Twilio WhatsApp: From=${whatsappFrom}, To=${whatsappTo}`);
+    console.error(`[Messaging] Twilio WhatsApp: From=${whatsappFrom}, To=${whatsappTo}`);
 
     const response = await fetch(
       `https://api.twilio.com/2010-04-01/Accounts/${this.config.phoneAccountSid}/Messages.json`,
@@ -222,7 +259,7 @@ export class MessagingManager {
     }
 
     const data = await response.json();
-    console.log(`[Messaging] Twilio WhatsApp sent: ${data.sid}`);
+    console.error(`[Messaging] Twilio WhatsApp sent: ${data.sid}`);
     return data.sid;
   }
 

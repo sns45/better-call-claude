@@ -28,7 +28,7 @@ export class TransportManager {
   private port: number = 0;
 
   async start(port: number): Promise<string> {
-    console.log("[Tailscale] Checking setup...");
+    console.error("[Tailscale] Checking setup...");
 
     // Check all prerequisites and provide guidance
     const status = await this.checkTailscaleStatus();
@@ -39,12 +39,12 @@ export class TransportManager {
     }
 
     if (!status.running) {
-      console.log("[Tailscale] Tailscale daemon not running, attempting to start...");
+      console.error("[Tailscale] Tailscale daemon not running, attempting to start...");
       await this.startTailscaleDaemon();
     }
 
     if (!status.authenticated) {
-      console.log("[Tailscale] Not authenticated, starting login...");
+      console.error("[Tailscale] Not authenticated, starting login...");
       await this.authenticate();
       // Re-check status after auth
       const newStatus = await this.checkTailscaleStatus();
@@ -55,7 +55,7 @@ export class TransportManager {
 
     // Get hostname
     this.hostname = status.hostname || await this.getHostname();
-    console.log(`[Tailscale] Hostname: ${this.hostname}`);
+    console.error(`[Tailscale] Hostname: ${this.hostname}`);
 
     // Check if funnel is enabled
     if (!status.funnelEnabled) {
@@ -65,11 +65,11 @@ export class TransportManager {
 
     // Start funnel
     this.port = port;
-    console.log("[Tailscale] Starting Funnel...");
+    console.error("[Tailscale] Starting Funnel...");
     await this.enableFunnel(port);
 
     this.publicUrl = `https://${this.hostname}/bcc`;
-    console.log(`[Tailscale] Funnel active: ${this.publicUrl}`);
+    console.error(`[Tailscale] Funnel active: ${this.publicUrl}`);
     return this.publicUrl;
   }
 
@@ -149,28 +149,28 @@ export class TransportManager {
   private async guidedInstall(): Promise<void> {
     const platform = process.platform;
 
-    console.log("\n" + "=".repeat(60));
-    console.log("  TAILSCALE INSTALLATION REQUIRED");
-    console.log("=".repeat(60));
-    console.log("\nTailscale provides free, stable public URLs for webhooks.\n");
+    console.error("\n" + "=".repeat(60));
+    console.error("  TAILSCALE INSTALLATION REQUIRED");
+    console.error("=".repeat(60));
+    console.error("\nTailscale provides free, stable public URLs for webhooks.\n");
 
     if (platform === "darwin") {
-      console.log("Install on macOS:");
-      console.log("  brew install tailscale");
-      console.log("\nOr download from: https://tailscale.com/download/mac");
+      console.error("Install on macOS:");
+      console.error("  brew install tailscale");
+      console.error("\nOr download from: https://tailscale.com/download/mac");
     } else if (platform === "linux") {
-      console.log("Install on Linux:");
-      console.log("  curl -fsSL https://tailscale.com/install.sh | sh");
-      console.log("\nOr see: https://tailscale.com/download/linux");
+      console.error("Install on Linux:");
+      console.error("  curl -fsSL https://tailscale.com/install.sh | sh");
+      console.error("\nOr see: https://tailscale.com/download/linux");
     } else if (platform === "win32") {
-      console.log("Install on Windows:");
-      console.log("  Download from: https://tailscale.com/download/windows");
+      console.error("Install on Windows:");
+      console.error("  Download from: https://tailscale.com/download/windows");
     } else {
-      console.log("Download Tailscale from: https://tailscale.com/download");
+      console.error("Download Tailscale from: https://tailscale.com/download");
     }
 
-    console.log("\nAfter installation, restart this server.");
-    console.log("=".repeat(60) + "\n");
+    console.error("\nAfter installation, restart this server.");
+    console.error("=".repeat(60) + "\n");
   }
 
   private async startTailscaleDaemon(): Promise<void> {
@@ -179,26 +179,26 @@ export class TransportManager {
     try {
       if (platform === "darwin") {
         // On macOS, open the Tailscale app
-        console.log("[Tailscale] Opening Tailscale app...");
+        console.error("[Tailscale] Opening Tailscale app...");
         await execAsync("open -a Tailscale");
         // Wait for daemon to start
         await new Promise(resolve => setTimeout(resolve, 3000));
       } else if (platform === "linux") {
-        console.log("[Tailscale] Starting tailscaled service...");
+        console.error("[Tailscale] Starting tailscaled service...");
         await execAsync("sudo systemctl start tailscaled");
       }
     } catch (e) {
-      console.log("[Tailscale] Could not auto-start daemon.");
-      console.log("  macOS: Open the Tailscale app from Applications");
-      console.log("  Linux: sudo systemctl start tailscaled");
+      console.error("[Tailscale] Could not auto-start daemon.");
+      console.error("  macOS: Open the Tailscale app from Applications");
+      console.error("  Linux: sudo systemctl start tailscaled");
     }
   }
 
   private async authenticate(): Promise<void> {
-    console.log("\n" + "=".repeat(60));
-    console.log("  TAILSCALE AUTHENTICATION");
-    console.log("=".repeat(60));
-    console.log("\nOpening browser for Tailscale login...\n");
+    console.error("\n" + "=".repeat(60));
+    console.error("  TAILSCALE AUTHENTICATION");
+    console.error("=".repeat(60));
+    console.error("\nOpening browser for Tailscale login...\n");
 
     try {
       // tailscale up will open browser for authentication
@@ -209,14 +209,14 @@ export class TransportManager {
       // Capture output for any auth URLs
       child.stdout?.on("data", (data) => {
         const output = data.toString();
-        console.log(output);
+        console.error(output);
       });
 
       child.stderr?.on("data", (data) => {
         const output = data.toString();
         if (output.includes("https://")) {
-          console.log("\nPlease visit this URL to authenticate:");
-          console.log(output);
+          console.error("\nPlease visit this URL to authenticate:");
+          console.error(output);
         }
       });
 
@@ -230,7 +230,7 @@ export class TransportManager {
         child.on("close", (code) => {
           clearTimeout(timeout);
           if (code === 0) {
-            console.log("[Tailscale] Authentication successful!");
+            console.error("[Tailscale] Authentication successful!");
             resolve();
           } else {
             reject(new Error(`Authentication failed with code ${code}`));
@@ -238,20 +238,20 @@ export class TransportManager {
         });
       });
     } catch (e) {
-      console.log("\n[Tailscale] Please authenticate manually:");
-      console.log("  Run: tailscale up");
+      console.error("\n[Tailscale] Please authenticate manually:");
+      console.error("  Run: tailscale up");
       throw e;
     }
   }
 
   private printFunnelInstructions(): void {
-    console.log("\n" + "=".repeat(60));
-    console.log("  TAILSCALE FUNNEL SETUP REQUIRED");
-    console.log("=".repeat(60));
-    console.log("\nFunnel needs to be enabled in your Tailscale admin console.");
-    console.log("\n1. Go to: https://login.tailscale.com/admin/acls");
-    console.log("\n2. Add this to your ACL policy (in the JSON editor):");
-    console.log(`
+    console.error("\n" + "=".repeat(60));
+    console.error("  TAILSCALE FUNNEL SETUP REQUIRED");
+    console.error("=".repeat(60));
+    console.error("\nFunnel needs to be enabled in your Tailscale admin console.");
+    console.error("\n1. Go to: https://login.tailscale.com/admin/acls");
+    console.error("\n2. Add this to your ACL policy (in the JSON editor):");
+    console.error(`
    "nodeAttrs": [
      {
        "target": ["autogroup:member"],
@@ -259,16 +259,16 @@ export class TransportManager {
      }
    ]
 `);
-    console.log("3. Save the policy and restart this server.");
-    console.log("\nAlternatively, use the policy file template at:");
-    console.log("  https://tailscale.com/kb/1223/funnel#prerequisites");
-    console.log("=".repeat(60) + "\n");
+    console.error("3. Save the policy and restart this server.");
+    console.error("\nAlternatively, use the policy file template at:");
+    console.error("  https://tailscale.com/kb/1223/funnel#prerequisites");
+    console.error("=".repeat(60) + "\n");
   }
 
   private async getHostname(): Promise<string> {
     const envHostname = process.env.TAILSCALE_HOSTNAME;
     if (envHostname) {
-      console.log("[Tailscale] Using hostname from TAILSCALE_HOSTNAME env");
+      console.error("[Tailscale] Using hostname from TAILSCALE_HOSTNAME env");
       return envHostname;
     }
 
@@ -344,12 +344,12 @@ export class TransportManager {
       // Try merge-aware config first (preserves other paths like /dc)
       try {
         await this.setMergedFunnelConfig(port);
-        console.log("[Tailscale Funnel] Config merged — /bcc path set, other paths preserved");
+        console.error("[Tailscale Funnel] Config merged — /bcc path set, other paths preserved");
         return;
       } catch (mergeErr) {
         // --set-raw may not be available on older Tailscale versions; fall back to CLI
         const msg = mergeErr instanceof Error ? mergeErr.message : String(mergeErr);
-        console.log(`[Tailscale] Merge-aware config failed (${msg}), falling back to CLI...`);
+        console.error(`[Tailscale] Merge-aware config failed (${msg}), falling back to CLI...`);
       }
 
       // Fallback: use --bg --set-path (may overwrite other paths on buggy versions)
@@ -360,7 +360,7 @@ export class TransportManager {
         throw new Error(output);
       }
 
-      console.log(`[Tailscale Funnel] ${output.trim()}`);
+      console.error(`[Tailscale Funnel] ${output.trim()}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
 
@@ -378,7 +378,7 @@ export class TransportManager {
    */
   async stop(): Promise<void> {
     if (this.port) {
-      console.log("[Tailscale] Removing /bcc path...");
+      console.error("[Tailscale] Removing /bcc path...");
       try {
         const existing = await this.getServeConfig();
         if (existing) {

@@ -74,7 +74,7 @@ export class WebhookSecurity {
     // Telnyx uses Ed25519 signatures, which require the 'tweetnacl' package
     // For simplicity, we'll just validate the timestamp in this implementation
     // In production, you should use the official Telnyx SDK or tweetnacl for full verification
-    console.log("[WebhookSecurity] Telnyx signature present, timestamp valid");
+    console.error("[WebhookSecurity] Telnyx signature present, timestamp valid");
     return true;
   }
 
@@ -96,7 +96,7 @@ export class WebhookSecurity {
     // Enable with BETTERCALLCLAUDE_VERIFY_WEBHOOKS=true for production
     const verifyWebhooks = process.env.BETTERCALLCLAUDE_VERIFY_WEBHOOKS === "true";
     if (!verifyWebhooks) {
-      console.log("[WebhookSecurity] Webhook verification disabled (dev mode)");
+      console.error("[WebhookSecurity] Webhook verification disabled (dev mode)");
       return true;
     }
 

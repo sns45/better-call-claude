@@ -27,9 +27,17 @@ import { createPhoneAPI } from "./phone-api.js";
 import { TaskExecutor } from "./task-executor.js";
 import { updateTwilioWebhooks } from "./twilio-webhook-updater.js";
 import { loadConfig, validateConfig } from "./config.js";
+import { WhatsAppChatManager } from "./whatsapp-chat.js";
+import type { InboundMessageData } from "./messaging.js";
+import type { BaileysClient } from "./baileys.js";
 
 // Configuration
 const config = loadConfig();
+
+// Determine mode: baileys-only has no phone provider credentials
+const isBaileysOnly = config.whatsappProvider === "baileys" &&
+  !config.phoneAccountSid && !config.phoneAuthToken && !config.phoneNumber;
+const hasPhoneProvider = !!config.phoneAccountSid && !!config.phoneAuthToken && !!config.phoneNumber;
 
 // Initialize managers
 const conversationManager = new ConversationManager();
@@ -41,6 +49,8 @@ let transportManager: TransportManager;
 let publicUrl: string = "";
 let taskExecutor: TaskExecutor;
 let phoneAPI: ReturnType<typeof createPhoneAPI>;
+let baileysClient: BaileysClient | null = null;
+let whatsappChatManager: WhatsAppChatManager | null = null;
 
 // Hono app for webhooks
 const app = new Hono();
@@ -84,16 +94,19 @@ app.use("/webhook/*", async (c, next) => {
 app.post("/webhook/:provider/inbound", async (c) => {
   const provider = c.req.param("provider") as "telnyx" | "twilio";
   const body = (c as any).parsedBody || (await c.req.json());
-  console.log(`[Inbound] Received call from ${provider}:`, JSON.stringify(body).slice(0, 200));
+  console.error(`[Inbound] Received call from ${provider}:`, JSON.stringify(body).slice(0, 200));
 
   try {
     const callData = phoneCallManager.parseInboundWebhook(provider, body);
 
     if (callData.type === "call.initiated") {
+      // Reset WhatsApp chat session — voice call is the only reset trigger
+      whatsappChatManager?.resetForVoiceCall();
+
       // Check for existing conversation to prevent duplicates (race condition fix)
       const existingConversation = conversationManager.getConversationByProviderId(callData.providerCallId);
       if (existingConversation) {
-        console.log(`[Inbound] Using existing conversation: ${existingConversation.id}`);
+        console.error(`[Inbound] Using existing conversation: ${existingConversation.id}`);
         // Use existing conversation ID for the response
         const twiml = phoneCallManager.generateAnswerTwiML(
           "Hello! This is Claude. What would you like me to work on?",
@@ -133,13 +146,13 @@ app.post("/webhook/:provider/gather/:conversationId", async (c) => {
   const provider = c.req.param("provider") as "telnyx" | "twilio";
   const conversationId = c.req.param("conversationId");
   const body = (c as any).parsedBody || (await c.req.json());
-  console.log(`[Gather] Speech input for conversation ${conversationId}`);
+  console.error(`[Gather] Speech input for conversation ${conversationId}`);
 
   try {
     const speechResult = phoneCallManager.parseSpeechResult(provider, body);
 
     if (speechResult.transcript) {
-      console.log(`[Gather] Transcript: "${speechResult.transcript}"`);
+      console.error(`[Gather] Transcript: "${speechResult.transcript}"`);
 
       // Store the message
       conversationManager.addMessage(conversationId, "user", speechResult.transcript);
@@ -149,7 +162,7 @@ app.post("/webhook/:provider/gather/:conversationId", async (c) => {
 
       if (wasQuestionPending) {
         // Claude asked a question, we resolved it - keep call on hold
-        console.log(`[Gather] Resolved pending question for ${conversationId}`);
+        console.error(`[Gather] Resolved pending question for ${conversationId}`);
         const twiml = phoneCallManager.generateHoldTwiML(
           "",  // No message, Claude will speak via API
           `${publicUrl}/webhook/${provider}/hold/${conversationId}`,
@@ -163,12 +176,12 @@ app.post("/webhook/:provider/gather/:conversationId", async (c) => {
 
       if (!existingExecution) {
         // First message - spawn Claude Code session
-        console.log(`[Gather] Spawning Claude for: ${speechResult.transcript}`);
+        console.error(`[Gather] Spawning Claude for: ${speechResult.transcript}`);
 
         // Check if there's context from a previous task (callback follow-up)
         const context = taskExecutor.getTaskContext(conversationId);
         if (context) {
-          console.log(`[Gather] Found prior context: ${context.completionSummary.slice(0, 50)}...`);
+          console.error(`[Gather] Found prior context: ${context.completionSummary.slice(0, 50)}...`);
         }
 
         taskExecutor.executeTask(
@@ -228,13 +241,23 @@ app.post("/webhook/:provider/status/:conversationId", async (c) => {
   const provider = c.req.param("provider") as "telnyx" | "twilio";
   const conversationId = c.req.param("conversationId");
   const body = (c as any).parsedBody || (await c.req.json());
-  console.log(`[Status] Conversation ${conversationId} status update:`, body);
+  console.error(`[Status] Conversation ${conversationId} status update:`, body);
 
   try {
     const status = phoneCallManager.parseStatusWebhook(provider, body);
 
     if (status.state === "completed" || status.state === "failed") {
       conversationManager.updateState(conversationId, ConversationState.ENDED);
+
+      // Seed voice call context into WhatsApp chat for cross-channel continuity
+      if (whatsappChatManager) {
+        const taskContext = taskExecutor?.getTaskContext(conversationId);
+        if (taskContext) {
+          whatsappChatManager.setVoiceContext(
+            `Task: "${taskContext.originalTask}"\nResult: "${taskContext.completionSummary}"\nWorking dir: ${taskContext.workingDir}`
+          );
+        }
+      }
     } else if (status.state === "answered") {
       conversationManager.updateState(conversationId, ConversationState.ACTIVE);
     }
@@ -253,7 +276,7 @@ app.post("/webhook/:provider/status/:conversationId", async (c) => {
 app.post("/webhook/:provider/sms", async (c) => {
   const provider = c.req.param("provider") as "telnyx" | "twilio";
   const body = (c as any).parsedBody;
-  console.log(`[SMS] Received from ${provider}:`, JSON.stringify(body).slice(0, 200));
+  console.error(`[SMS] Received from ${provider}:`, JSON.stringify(body).slice(0, 200));
 
   try {
     const message = messagingManager.parseInboundMessage(provider, body);
@@ -269,7 +292,7 @@ app.post("/webhook/:provider/sms", async (c) => {
 
       // Add the message
       conversationManager.addMessage(conversation.id, "user", message.content);
-      console.log(`[SMS] Added message to conversation ${conversation.id}`);
+      console.error(`[SMS] Added message to conversation ${conversation.id}`);
     }
 
     return c.text("OK", 200);
@@ -280,69 +303,85 @@ app.post("/webhook/:provider/sms", async (c) => {
 });
 
 // ============================================
+// SHARED WHATSAPP INBOUND HANDLER
+// ============================================
+
+function handleInboundWhatsApp(message: InboundMessageData): void {
+  // Find or create conversation for this sender
+  const conversation = conversationManager.findOrCreateConversation(
+    ChannelType.WHATSAPP,
+    message.messageId,
+    message.from,
+    message.to
+  );
+
+  // Add the message
+  conversationManager.addMessage(conversation.id, "user", message.content);
+  console.error(`[WhatsApp] Added message to conversation ${conversation.id}`);
+
+  // Priority 1: Check if there's a Claude session waiting for WhatsApp messages
+  if (phoneAPI?.hasPendingWhatsAppWait()) {
+    const wasResolved = phoneAPI.resolveWhatsAppWait(message.content);
+    if (wasResolved) {
+      console.error(`[WhatsApp] Routed message to waiting Claude session`);
+      return;
+    }
+  }
+
+  // Priority 2: Check if there's a pending question from spawned Claude
+  const wasQuestionPending = phoneAPI?.resolveQuestion(conversation.id, message.content);
+
+  if (!wasQuestionPending) {
+    // No pending question - check if we should spawn Claude
+    const existingExecution = taskExecutor?.getExecution(conversation.id);
+
+    // Only skip spawning if there's an ACTIVE execution (still running)
+    if (!existingExecution || existingExecution.status !== "running") {
+      // Priority 3 check passed — no active task
+
+      // Priority 4: Route to WhatsApp Chat Manager (always-on conversation)
+      if (whatsappChatManager) {
+        console.error(`[WhatsApp] Routing to ChatManager (session ${whatsappChatManager.getSessionId().slice(0, 8)}): ${message.content}`);
+        whatsappChatManager.handleMessage(message.content);
+      } else {
+        // Fallback: original one-shot behavior (non-baileys mode)
+        const voiceContext = taskExecutor?.getLatestTaskContext();
+
+        if (voiceContext) {
+          console.error(`[WhatsApp] Found voice context from ${voiceContext.conversationId?.slice(0, 8)}: ${voiceContext.originalTask.slice(0, 50)}...`);
+        }
+
+        console.error(`[WhatsApp] Spawning Claude for: ${message.content}`);
+        taskExecutor?.executeTask(
+          conversation.id,
+          message.content,
+          voiceContext?.workingDir || process.cwd(),
+          voiceContext,
+          "whatsapp"
+        );
+      }
+    } else {
+      console.error(`[WhatsApp] Claude already running for ${conversation.id.slice(0, 8)}`);
+    }
+  } else {
+    console.error(`[WhatsApp] Resolved pending question for ${conversation.id.slice(0, 8)}`);
+  }
+}
+
+// ============================================
 // WHATSAPP WEBHOOKS
 // ============================================
 
 app.post("/webhook/:provider/whatsapp", async (c) => {
   const provider = c.req.param("provider") as "telnyx" | "twilio";
   const body = (c as any).parsedBody;
-  console.log(`[WhatsApp] Received from ${provider}:`, JSON.stringify(body).slice(0, 200));
+  console.error(`[WhatsApp] Received from ${provider}:`, JSON.stringify(body).slice(0, 200));
 
   try {
     const message = messagingManager.parseInboundMessage(provider, body);
 
     if (message && message.type === "whatsapp") {
-      // Find or create conversation for this sender
-      const conversation = conversationManager.findOrCreateConversation(
-        ChannelType.WHATSAPP,
-        message.messageId,
-        message.from,
-        message.to
-      );
-
-      // Add the message
-      conversationManager.addMessage(conversation.id, "user", message.content);
-      console.log(`[WhatsApp] Added message to conversation ${conversation.id}`);
-
-      // Priority 1: Check if there's a Claude session waiting for WhatsApp messages
-      if (phoneAPI.hasPendingWhatsAppWait()) {
-        const wasResolved = phoneAPI.resolveWhatsAppWait(message.content);
-        if (wasResolved) {
-          console.log(`[WhatsApp] Routed message to waiting Claude session`);
-          return c.text("OK", 200);
-        }
-      }
-
-      // Priority 2: Check if there's a pending question from spawned Claude
-      const wasQuestionPending = phoneAPI.resolveQuestion(conversation.id, message.content);
-
-      if (!wasQuestionPending) {
-        // No pending question - check if we should spawn Claude
-        const existingExecution = taskExecutor.getExecution(conversation.id);
-
-        // Only skip spawning if there's an ACTIVE execution (still running)
-        if (!existingExecution || existingExecution.status !== "running") {
-          // Find context from latest voice call (if any)
-          const voiceContext = taskExecutor.getLatestTaskContext();
-
-          if (voiceContext) {
-            console.log(`[WhatsApp] Found voice context from ${voiceContext.conversationId?.slice(0, 8)}: ${voiceContext.originalTask.slice(0, 50)}...`);
-          }
-
-          console.log(`[WhatsApp] Spawning Claude for: ${message.content}`);
-          taskExecutor.executeTask(
-            conversation.id,
-            message.content,
-            voiceContext?.workingDir || process.cwd(),
-            voiceContext,  // Pass voice call context
-            "whatsapp"     // Channel type for response
-          );
-        } else {
-          console.log(`[WhatsApp] Claude already running for ${conversation.id.slice(0, 8)}`);
-        }
-      } else {
-        console.log(`[WhatsApp] Resolved pending question for ${conversation.id.slice(0, 8)}`);
-      }
+      handleInboundWhatsApp(message);
     }
 
     return c.text("OK", 200);
@@ -357,12 +396,12 @@ app.post("/webhook/:provider/message-status/:conversationId", async (c) => {
   const provider = c.req.param("provider") as "telnyx" | "twilio";
   const conversationId = c.req.param("conversationId");
   const body = (c as any).parsedBody;
-  console.log(`[MessageStatus] Conversation ${conversationId}:`, body);
+  console.error(`[MessageStatus] Conversation ${conversationId}:`, body);
 
   try {
     const status = messagingManager.parseStatusWebhook(provider, body);
     if (status) {
-      console.log(`[MessageStatus] Message ${status.messageId} status: ${status.status}`);
+      console.error(`[MessageStatus] Message ${status.messageId} status: ${status.status}`);
     }
     return c.text("OK", 200);
   } catch (error) {
@@ -384,6 +423,14 @@ app.get("/health", (c) => {
       voice: conversationManager.getActiveConversations(ChannelType.VOICE).length,
       sms: conversationManager.getActiveConversations(ChannelType.SMS).length,
       whatsapp: conversationManager.getActiveConversations(ChannelType.WHATSAPP).length,
+    },
+    baileys: {
+      connected: baileysClient?.isConnected() ?? false,
+      debugLog: baileysClient?.getDebugLog?.() ?? [],
+      chatManagerSession: whatsappChatManager?.getSessionId()?.slice(0, 8) ?? null,
+      chatManagerProcessing: whatsappChatManager?.getIsProcessing() ?? false,
+      chatManagerPending: whatsappChatManager?.getPendingCount() ?? 0,
+      chatManagerHistory: whatsappChatManager?.getHistory()?.length ?? 0,
     },
   });
 });
@@ -1143,44 +1190,109 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 // ============================================
 
 async function main(): Promise<void> {
-  console.log("[Init] Starting Better Call Claude MCP Server v2.0...");
+  console.error("[Init] Starting Better Call Claude MCP Server v2.0...");
 
   // Validate configuration
   validateConfig(config);
-  console.log("[Init] Configuration validated");
+  console.error("[Init] Configuration validated");
 
-  // Initialize transport (Tailscale Funnel)
-  transportManager = new TransportManager();
-  publicUrl = await transportManager.start(config.port);
-  console.log(`[Init] Tailscale Funnel ready: ${publicUrl}`);
+  // Initialize Baileys if configured (before transport — Baileys doesn't need a public URL)
+  // Connection is non-blocking so MCP stdio transport starts immediately
+  if (config.whatsappProvider === "baileys") {
+    const { BaileysClient } = await import("./baileys.js");
+    const { existsSync } = await import("fs");
+    const hasAuth = existsSync(`${config.baileysAuthDir}/creds.json`);
 
-  // Auto-update Twilio webhooks if using Twilio provider
-  if (config.phoneProvider === "twilio") {
-    await updateTwilioWebhooks(
-      {
-        accountSid: config.phoneAccountSid,
-        authToken: config.phoneAuthToken,
-        phoneNumber: config.phoneNumber,
-        whatsappNumber: config.whatsappNumber || undefined,
-      },
-      publicUrl
-    );
+    if (hasAuth) {
+      baileysClient = new BaileysClient(config.baileysAuthDir);
+      console.error("[Init] Connecting to WhatsApp via Baileys (session found)...");
+      // Don't await — connect in the background so MCP server isn't blocked
+      baileysClient.connect().then(() => {
+        console.error(`[Init] Baileys connected (auth: ${config.baileysAuthDir})`);
+      }).catch((err) => {
+        console.error("[Init] Baileys connection failed:", err);
+        console.error("[Init] WhatsApp will be unavailable. Re-pair with: npx tsx scripts/baileys-pair.ts");
+      });
+    } else {
+      console.error("[Init] Baileys configured but no session found.");
+      console.error("[Init] Run: npx tsx scripts/baileys-pair.ts");
+      console.error("[Init] Then restart Claude Code to enable WhatsApp via Baileys.");
+    }
   }
 
-  // Initialize managers
-  phoneCallManager = new PhoneCallManager(config);
+  // Initialize transport — skip Tailscale Funnel if Baileys-only mode
+  if (isBaileysOnly) {
+    publicUrl = `http://localhost:${config.port}`;
+    console.error(`[Init] Baileys-only mode — no Tailscale Funnel needed`);
+  } else {
+    try {
+      transportManager = new TransportManager();
+      publicUrl = await transportManager.start(config.port);
+      console.error(`[Init] Tailscale Funnel ready: ${publicUrl}`);
+
+      // Auto-update Twilio webhooks if using Twilio provider
+      if (config.phoneProvider === "twilio" && hasPhoneProvider) {
+        await updateTwilioWebhooks(
+          {
+            accountSid: config.phoneAccountSid,
+            authToken: config.phoneAuthToken,
+            phoneNumber: config.phoneNumber,
+            whatsappNumber: config.whatsappNumber || undefined,
+          },
+          publicUrl
+        );
+      }
+    } catch (err) {
+      // Tailscale failed — fall back to localhost so MCP server still starts
+      publicUrl = `http://localhost:${config.port}`;
+      console.error(`[Init] Tailscale Funnel unavailable: ${err instanceof Error ? err.message : err}`);
+      console.error(`[Init] Voice/SMS webhooks won't work. Baileys WhatsApp will still work.`);
+      console.error(`[Init] To enable webhooks, run: tailscale up`);
+    }
+  }
+
+  // Initialize managers — PhoneCallManager only if phone provider credentials exist
+  if (hasPhoneProvider) {
+    phoneCallManager = new PhoneCallManager(config);
+  }
+
   messagingManager = new MessagingManager({
     ...config,
-    whatsappNumber: config.whatsappNumber || undefined,  // Pass WhatsApp number if configured
+    whatsappProvider: config.whatsappProvider,
+    whatsappNumber: config.whatsappNumber || undefined,
   });
-  console.log(`[Init] Phone provider: ${config.phoneProvider}`);
-  console.log(`[Init] Channels enabled: Voice, SMS, WhatsApp`);
+
+  // Wire Baileys into the messaging manager for outbound WhatsApp
+  if (baileysClient) {
+    messagingManager.setBaileysClient(baileysClient);
+  }
+
+  // Log channel status
+  const channels: string[] = [];
+  if (hasPhoneProvider) channels.push("Voice", "SMS");
+  if (config.whatsappProvider === "baileys") channels.push("WhatsApp (Baileys)");
+  else if (hasPhoneProvider) channels.push("WhatsApp");
+  console.error(`[Init] Phone provider: ${hasPhoneProvider ? config.phoneProvider : "none"}`);
+  console.error(`[Init] WhatsApp provider: ${config.whatsappProvider || config.phoneProvider}`);
+  console.error(`[Init] Channels enabled: ${channels.join(", ")}`);
   if (config.whatsappNumber) {
-    console.log(`[Init] WhatsApp number: ${config.whatsappNumber} (separate from voice)`);
+    console.error(`[Init] WhatsApp number: ${config.whatsappNumber} (separate from voice)`);
   }
 
   // Initialize task executor and phone API for autonomous operation
   taskExecutor = new TaskExecutor(publicUrl);
+
+  // Initialize WhatsApp Chat Manager for always-on conversation (Baileys mode only)
+  if (config.whatsappProvider === "baileys") {
+    whatsappChatManager = new WhatsAppChatManager(
+      taskExecutor,
+      publicUrl,
+      process.cwd(),
+      config.whatsappChatHistorySize,
+    );
+    console.error(`[Init] WhatsApp Chat Manager ready (session ${whatsappChatManager.getSessionId().slice(0, 8)})`);
+  }
+
   phoneAPI = createPhoneAPI(
     phoneCallManager,
     conversationManager,
@@ -1189,11 +1301,18 @@ async function main(): Promise<void> {
       userPhoneNumber: config.userPhoneNumber,
     },
     () => publicUrl,
-    taskExecutor,  // Pass taskExecutor for context preservation
-    messagingManager  // Pass messagingManager for SMS/WhatsApp
+    taskExecutor,
+    messagingManager,
+    whatsappChatManager || undefined,
   );
   app.route("/api", phoneAPI.api);
-  console.log(`[Init] Autonomous phone API ready at ${publicUrl}/api/*`);
+  console.error(`[Init] Autonomous phone API ready at ${publicUrl}/api/*`);
+
+  // Register Baileys inbound message handler
+  if (baileysClient) {
+    baileysClient.onInboundMessage(handleInboundWhatsApp);
+    console.error("[Init] Baileys inbound handler registered");
+  }
 
   // Start HTTP server (skip if port is already in use — another instance may be running)
   let httpServer: ReturnType<typeof serve> | null = null;
@@ -1202,18 +1321,22 @@ async function main(): Promise<void> {
       port: config.port,
       fetch: app.fetch,
     });
-    console.log(`[Init] HTTP server listening on port ${config.port}`);
-    console.log(`[Init] Webhooks:`);
-    console.log(`       Voice:    ${publicUrl}/webhook/${config.phoneProvider}/inbound`);
-    console.log(`       SMS:      ${publicUrl}/webhook/${config.phoneProvider}/sms`);
-    console.log(`       WhatsApp: ${publicUrl}/webhook/${config.phoneProvider}/whatsapp`);
-    console.log(`[Init] Phone API (for spawned Claude):`);
-    console.log(`       Ask:      POST ${publicUrl}/api/ask/:conversationId`);
-    console.log(`       Say:      POST ${publicUrl}/api/say/:conversationId`);
-    console.log(`       Complete: POST ${publicUrl}/api/complete/:conversationId`);
+    console.error(`[Init] HTTP server listening on port ${config.port}`);
+    if (hasPhoneProvider) {
+      console.error(`[Init] Webhooks:`);
+      console.error(`       Voice:    ${publicUrl}/webhook/${config.phoneProvider}/inbound`);
+      console.error(`       SMS:      ${publicUrl}/webhook/${config.phoneProvider}/sms`);
+      if (config.whatsappProvider !== "baileys") {
+        console.error(`       WhatsApp: ${publicUrl}/webhook/${config.phoneProvider}/whatsapp`);
+      }
+      console.error(`[Init] Phone API (for spawned Claude):`);
+      console.error(`       Ask:      POST ${publicUrl}/api/ask/:conversationId`);
+      console.error(`       Say:      POST ${publicUrl}/api/say/:conversationId`);
+      console.error(`       Complete: POST ${publicUrl}/api/complete/:conversationId`);
+    }
   } catch (e: any) {
     if (e?.code === "EADDRINUSE") {
-      console.log(`[Init] Port ${config.port} already in use — running in MCP-only mode (HTTP server skipped)`);
+      console.error(`[Init] Port ${config.port} already in use — running in MCP-only mode (HTTP server skipped)`);
     } else {
       throw e;
     }
@@ -1222,20 +1345,25 @@ async function main(): Promise<void> {
   // Start MCP server
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.log("[Init] MCP server connected via stdio");
+  console.error("[Init] MCP server connected via stdio");
 
-  // Graceful shutdown
-  process.on("SIGINT", async () => {
-    console.log("[Shutdown] Received SIGINT, cleaning up...");
-
-    // Kill all running Claude processes
+  // Graceful shutdown — handles SIGINT, SIGTERM, and MCP stdin close
+  const cleanup = async (reason: string) => {
+    console.error(`[Shutdown] ${reason}, cleaning up...`);
+    baileysClient?.disconnect();
     taskExecutor.killAllRunning();
-
     httpServer?.stop();
-    await transportManager.stop();
-    await server.close();
+    if (transportManager) await transportManager.stop();
+    try { await server.close(); } catch {}
     process.exit(0);
-  });
+  };
+
+  process.on("SIGINT", () => cleanup("Received SIGINT"));
+  process.on("SIGTERM", () => cleanup("Received SIGTERM"));
+
+  // When MCP client disconnects (stdin closes), exit cleanly to prevent zombie processes
+  process.stdin.on("end", () => cleanup("MCP stdin closed"));
+  process.stdin.on("close", () => cleanup("MCP stdin closed"));
 
   // Cleanup old conversations and task executions periodically
   setInterval(() => {

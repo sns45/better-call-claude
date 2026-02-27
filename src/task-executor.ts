@@ -38,7 +38,7 @@ export class TaskExecutor {
    */
   linkCallback(callbackConversationId: string, originalConversationId: string): void {
     this.callbackLinks.set(callbackConversationId, originalConversationId);
-    console.log(`[TaskExecutor] Linked callback ${callbackConversationId.slice(0, 8)} to original ${originalConversationId.slice(0, 8)}`);
+    console.error(`[TaskExecutor] Linked callback ${callbackConversationId.slice(0, 8)} to original ${originalConversationId.slice(0, 8)}`);
   }
 
   /**
@@ -66,7 +66,7 @@ export class TaskExecutor {
     const execution = this.executions.get(conversationId);
     if (execution) {
       execution.completionSummary = summary;
-      console.log(`[TaskExecutor] Recorded completion for ${conversationId.slice(0, 8)}: ${summary.slice(0, 50)}...`);
+      console.error(`[TaskExecutor] Recorded completion for ${conversationId.slice(0, 8)}: ${summary.slice(0, 50)}...`);
     }
   }
 
@@ -94,7 +94,7 @@ export class TaskExecutor {
     }
 
     if (latestContext) {
-      console.log(`[TaskExecutor] Latest context: ${latestContext.originalTask.slice(0, 50)}... (${latestContext.conversationId?.slice(0, 8)})`);
+      console.error(`[TaskExecutor] Latest context: ${latestContext.originalTask.slice(0, 50)}... (${latestContext.conversationId?.slice(0, 8)})`);
     }
 
     return latestContext;
@@ -276,23 +276,53 @@ ${channel === "voice" ? `### Normal flow:
 Start now. ${context ? "This is a follow-up request - use your context from the previous task." : "Execute the task."}
 `.trim();
 
-    console.log(`[TaskExecutor] Starting task for ${conversationId}: ${initialTask.slice(0, 50)}...`);
+    console.error(`[TaskExecutor] Starting task for ${conversationId}: ${initialTask.slice(0, 50)}...`);
 
-    // Note: prompt is a positional argument, not a flag
-    // Usage: claude [options] [prompt]
-    const claude = spawn("claude", [
+    const execution = this.spawnClaude(conversationId, prompt, workingDir);
+    execution.task = initialTask;
+  }
+
+  /**
+   * Spawn a Claude Code process with the given prompt.
+   * Reusable by both executeTask() and WhatsAppChatManager.
+   * @param sessionId Optional stable session ID passed as --session-id to claude CLI
+   * @param onClose Optional callback invoked when the process exits
+   */
+  spawnClaude(
+    conversationId: string,
+    prompt: string,
+    workingDir: string,
+    sessionId?: string,
+    onClose?: (code: number | null) => void,
+  ): TaskExecution {
+    // Prevent spawned Claude from loading user's MCP servers (which would
+    // spawn recursive better-call-claude instances, steal Baileys connections,
+    // cause port conflicts, and add 90+ seconds of startup delay).
+    // Use --strict-mcp-config with empty config AND isolated HOME.
+    const args = [
       "--print",
       "--dangerously-skip-permissions",
-      prompt  // Prompt as positional argument
-    ], {
+      "--mcp-config", '{"mcpServers":{}}',
+      "--strict-mcp-config",
+    ];
+    if (sessionId) {
+      args.push("--session-id", sessionId);
+    }
+    args.push(prompt); // Prompt as positional argument
+
+    const spawnEnv = { ...process.env };
+    delete spawnEnv.CLAUDECODE;
+    delete spawnEnv.CLAUDE_CODE_ENTRYPOINT;
+
+    const claude = spawn("claude", args, {
       cwd: workingDir,
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env },
+      env: spawnEnv,
     });
 
     const execution: TaskExecution = {
       conversationId,
-      task: initialTask,
+      task: "",
       process: claude,
       status: "running",
       startedAt: new Date(),
@@ -300,10 +330,19 @@ Start now. ${context ? "This is a follow-up request - use your context from the 
     };
     this.executions.set(conversationId, execution);
 
+    // Capture output to temp files for debugging spawn issues (skip in tests)
+    const isTest = typeof process !== "undefined" && !!process.env.BUN_TEST;
+    const logFile = isTest ? null : `/tmp/bcc-spawn-${conversationId.slice(0, 12)}.log`;
+    if (logFile) {
+      const fs = require("fs");
+      try { fs.writeFileSync(logFile, `[${new Date().toISOString()}] Spawned: claude ${args.slice(0, 3).join(" ")} ...\n`); } catch {}
+    }
+
     claude.stdout?.on("data", (data) => {
       const output = data.toString().trim();
       if (output) {
-        console.log(`[Claude:${conversationId.slice(0, 8)}] ${output}`);
+        console.error(`[Claude:${conversationId.slice(0, 8)}] ${output}`);
+        if (logFile) { try { require("fs").appendFileSync(logFile, `[stdout] ${output}\n`); } catch {} }
       }
     });
 
@@ -311,18 +350,23 @@ Start now. ${context ? "This is a follow-up request - use your context from the 
       const output = data.toString().trim();
       if (output) {
         console.error(`[Claude:${conversationId.slice(0, 8)}:err] ${output}`);
+        if (logFile) { try { require("fs").appendFileSync(logFile, `[stderr] ${output}\n`); } catch {} }
       }
     });
 
     claude.on("close", (code) => {
       execution.status = code === 0 ? "completed" : "failed";
-      console.log(`[TaskExecutor] Claude session ${conversationId.slice(0, 8)} exited with code ${code}`);
+      console.error(`[TaskExecutor] Claude session ${conversationId.slice(0, 8)} exited with code ${code}`);
+      if (logFile) { try { require("fs").appendFileSync(logFile, `[close] exit code ${code}\n`); } catch {} }
+      onClose?.(code);
     });
 
     claude.on("error", (err) => {
       execution.status = "failed";
       console.error(`[TaskExecutor] Failed to spawn Claude: ${err.message}`);
     });
+
+    return execution;
   }
 
   /**
@@ -371,7 +415,7 @@ Start now. ${context ? "This is a follow-up request - use your context from the 
       } 
       // Kill zombie processes stuck in "running" state too long
       else if (execution.status === "running" && age > maxRunningMs) {
-        console.log(`[TaskExecutor] Killing zombie process ${id.slice(0, 8)} after ${maxRunningMs}ms`);
+        console.error(`[TaskExecutor] Killing zombie process ${id.slice(0, 8)} after ${maxRunningMs}ms`);
         execution.process.kill("SIGTERM");
         execution.status = "failed";
         toDelete.push(id);
@@ -388,7 +432,7 @@ Start now. ${context ? "This is a follow-up request - use your context from the 
   killAllRunning(): void {
     for (const [id, execution] of this.executions) {
       if (execution.status === "running") {
-        console.log(`[TaskExecutor] Killing running process ${id.slice(0, 8)}`);
+        console.error(`[TaskExecutor] Killing running process ${id.slice(0, 8)}`);
         execution.process.kill("SIGTERM");
         execution.status = "failed";
       }

@@ -12,3 +12,4 @@ todo-app/
 servers/
 mcp-publisher
 .mcpregistry_*
+data/

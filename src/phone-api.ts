@@ -9,6 +9,7 @@ import type { PhoneCallManager } from "./phone-call.js";
 import { ConversationManager, ChannelType, ConversationDirection, ConversationState } from "./conversation-manager.js";
 import type { TaskExecutor } from "./task-executor.js";
 import type { MessagingManager } from "./messaging.js";
+import type { WhatsAppChatManager } from "./whatsapp-chat.js";
 
 export interface PendingQuestion {
   resolve: (answer: string) => void;
@@ -31,7 +32,8 @@ export function createPhoneAPI(
   config: PhoneAPIConfig,
   getPublicUrl: () => string,
   taskExecutor?: TaskExecutor,
-  messagingManager?: MessagingManager
+  messagingManager?: MessagingManager,
+  whatsappChatManager?: WhatsAppChatManager,
 ) {
   const api = new Hono();
   const pendingQuestions = new Map<string, PendingQuestion>();
@@ -48,7 +50,7 @@ export function createPhoneAPI(
     const { message } = await c.req.json();
     const publicUrl = getPublicUrl();
 
-    console.log(`[PhoneAPI] Ask: ${message}`);
+    console.error(`[PhoneAPI] Ask: ${message}`);
 
     const conversation = conversationManager.getConversation(conversationId);
 
@@ -80,7 +82,7 @@ export function createPhoneAPI(
       );
     } catch (error) {
       // Call may have ended - clean up and return
-      console.log(`[PhoneAPI] Ask failed (call may have ended): ${error}`);
+      console.error(`[PhoneAPI] Ask failed (call may have ended): ${error}`);
       pendingQuestions.delete(conversationId);
       conversationManager.updateState(conversationId, ConversationState.ENDED);
       return c.json({
@@ -104,7 +106,7 @@ export function createPhoneAPI(
     const conversationId = c.req.param("conversationId");
     const { message } = await c.req.json();
 
-    console.log(`[PhoneAPI] Say: ${message}`);
+    console.error(`[PhoneAPI] Say: ${message}`);
 
     const conversation = conversationManager.getConversation(conversationId);
 
@@ -122,7 +124,7 @@ export function createPhoneAPI(
       return c.json({ success: true, delivered: true });
     } catch (error) {
       // Call may have ended
-      console.log(`[PhoneAPI] Say failed (call may have ended): ${error}`);
+      console.error(`[PhoneAPI] Say failed (call may have ended): ${error}`);
       conversationManager.updateState(conversationId, ConversationState.ENDED);
       return c.json({ success: true, delivered: false, reason: "call ended" });
     }
@@ -138,7 +140,7 @@ export function createPhoneAPI(
     const { summary } = await c.req.json();
     const publicUrl = getPublicUrl();
 
-    console.log(`[PhoneAPI] Complete: ${summary}`);
+    console.error(`[PhoneAPI] Complete: ${summary}`);
 
     // Record the completion summary for future follow-ups
     if (taskExecutor) {
@@ -161,13 +163,13 @@ export function createPhoneAPI(
       } catch (error) {
         // Speaking failed - user probably hung up but we didn't get the status webhook
         // Fall through to callback
-        console.log(`[PhoneAPI] Speak failed (user likely hung up): ${error}`);
+        console.error(`[PhoneAPI] Speak failed (user likely hung up): ${error}`);
         conversationManager.updateState(conversationId, ConversationState.ENDED);
       }
     }
 
     // User hung up (or speak failed) - call them back
-    console.log(`[PhoneAPI] Initiating callback to ${config.userPhoneNumber}`);
+    console.error(`[PhoneAPI] Initiating callback to ${config.userPhoneNumber}`);
     const newConversationId = crypto.randomUUID();
 
     // Link the callback conversation to the original so follow-ups have context
@@ -202,7 +204,7 @@ export function createPhoneAPI(
     const { message } = await c.req.json();
     const publicUrl = getPublicUrl();
 
-    console.log(`[PhoneAPI] Initiating call: ${message}`);
+    console.error(`[PhoneAPI] Initiating call: ${message}`);
 
     const conversationId = crypto.randomUUID();
 
@@ -248,7 +250,7 @@ export function createPhoneAPI(
   api.post("/sms", async (c) => {
     const { message } = await c.req.json();
 
-    console.log(`[PhoneAPI] SMS: ${message}`);
+    console.error(`[PhoneAPI] SMS: ${message}`);
 
     if (!messagingManager) {
       return c.json({ success: false, error: "Messaging not configured" }, 500);
@@ -271,7 +273,7 @@ export function createPhoneAPI(
   api.post("/whatsapp", async (c) => {
     const { message } = await c.req.json();
 
-    console.log(`[PhoneAPI] WhatsApp: ${message}`);
+    console.error(`[PhoneAPI] WhatsApp: ${message}`);
 
     if (!messagingManager) {
       return c.json({ success: false, error: "Messaging not configured" }, 500);
@@ -279,6 +281,8 @@ export function createPhoneAPI(
 
     try {
       const messageId = await messagingManager.sendWhatsApp(config.userPhoneNumber, message);
+      // Track outbound assistant messages in chat history
+      whatsappChatManager?.recordAssistantMessage(message);
       return c.json({ success: true, messageId });
     } catch (error) {
       console.error(`[PhoneAPI] WhatsApp failed: ${error}`);
@@ -299,7 +303,7 @@ export function createPhoneAPI(
     const body = await c.req.json().catch(() => ({}));
     const timeoutMs = body.timeout_ms || 300000; // 5 minutes default
 
-    console.log(`[PhoneAPI] WhatsApp-Wait: Waiting for message (timeout: ${timeoutMs}ms)`);
+    console.error(`[PhoneAPI] WhatsApp-Wait: Waiting for message (timeout: ${timeoutMs}ms)`);
 
     // Generate a unique wait ID for this request
     const waitId = crypto.randomUUID();
@@ -317,10 +321,10 @@ export function createPhoneAPI(
     const message = await messagePromise;
 
     if (message) {
-      console.log(`[PhoneAPI] WhatsApp-Wait: Received message: ${message.slice(0, 50)}...`);
+      console.error(`[PhoneAPI] WhatsApp-Wait: Received message: ${message.slice(0, 50)}...`);
       return c.json({ message, received: true });
     } else {
-      console.log(`[PhoneAPI] WhatsApp-Wait: Timeout - no message received`);
+      console.error(`[PhoneAPI] WhatsApp-Wait: Timeout - no message received`);
       return c.json({ message: null, received: false, reason: "timeout" });
     }
   });
@@ -353,7 +357,7 @@ export function createPhoneAPI(
       clearTimeout(pending.timeout);
       pending.resolve(message);
       pendingWhatsAppWaits.delete(waitId);
-      console.log(`[PhoneAPI] Resolved WhatsApp wait ${waitId.slice(0, 8)} with message`);
+      console.error(`[PhoneAPI] Resolved WhatsApp wait ${waitId.slice(0, 8)} with message`);
       return true;
     }
     return false;

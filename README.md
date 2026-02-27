@@ -33,6 +33,7 @@
 - **🗣️ Natural conversations** - Multi-turn interactions across all channels
 - **🔧 Tool composable** - Claude can use other tools while communicating
 - **⚡ Auto-webhook updates** - Twilio webhooks auto-update when URL changes
+- **🆓 Free WhatsApp via Baileys** - Personal WhatsApp with zero API costs, no business verification
 - **⌚ Works anywhere** - Phone, smartwatch, or any device
 
 > ### ⚠️ Testing Status
@@ -45,6 +46,7 @@
 > | Voice | Telnyx | 🔬 Not yet tested |
 > | SMS | Telnyx | 🔬 Not yet tested |
 > | WhatsApp | Telnyx | 🔬 Not yet tested |
+> | WhatsApp | Baileys (free) | 🔬 New - testing welcome |
 >
 > *Contributions welcome for testing other provider/channel combinations!*
 
@@ -52,13 +54,15 @@
 
 ## Quick Start
 
-### 1. Get Required Accounts
+### 1. Choose Your Setup
 
-| Service | Purpose | Cost |
-|---------|---------|------|
-| [Telnyx](https://telnyx.com) or [Twilio](https://twilio.com) | Phone calls | ~$1/mo + usage |
-| [OpenAI](https://platform.openai.com) | Speech-to-text & text-to-speech | ~$0.03/min |
-| [Tailscale](https://tailscale.com) | Webhook tunneling | Free |
+| Setup | What You Get | Cost | Accounts Needed |
+|-------|-------------|------|-----------------|
+| **Baileys only** | WhatsApp messaging | **Free** | None |
+| **Twilio/Telnyx** | Voice + SMS + WhatsApp | ~$1/mo + usage | Twilio/Telnyx + OpenAI |
+| **Hybrid** | Voice + SMS (Twilio) + WhatsApp (Baileys) | ~$1/mo + voice usage | Twilio/Telnyx + OpenAI |
+
+> **Just want WhatsApp?** Skip to [Option C: Baileys](#option-c-baileys-free-whatsapp) — no accounts, no API keys, completely free.
 
 ### 2. Set Up Phone Provider
 
@@ -99,7 +103,91 @@
 
 </details>
 
+<details>
+<summary><b>Option C: Baileys (Free WhatsApp — no API provider needed)</b></summary>
+
+Baileys connects directly to WhatsApp's Web protocol via WebSocket. It uses your personal WhatsApp account — no business verification, no API costs, no Twilio/Telnyx required.
+
+**How it works:** Same as WhatsApp Web — you link a device by scanning a QR code.
+
+**Step 1: Clone and install**
+
+```bash
+git clone https://github.com/sns45/better-call-claude
+cd better-call-claude
+bun install
+```
+
+**Step 2: Pair your WhatsApp**
+
+```bash
+bun run baileys:pair
+```
+
+1. A QR code will appear in your terminal
+2. Open WhatsApp on your phone > **Settings > Linked Devices > Link a Device**
+3. Scan the QR code
+4. Wait for "Paired successfully!" message
+
+Your session is saved in `data/baileys-auth/` — you won't need to scan again.
+
+**Step 3: Add to Claude Code** (`~/.claude.json` or `~/.claude/settings.json`):
+
+```json
+{
+  "mcpServers": {
+    "better-call-claude": {
+      "command": "bun",
+      "args": ["run", "/path/to/better-call-claude/src/index.ts"],
+      "env": {
+        "BETTERCALLCLAUDE_WHATSAPP_PROVIDER": "baileys",
+        "BETTERCALLCLAUDE_USER_PHONE_NUMBER": "+1234567890"
+      }
+    }
+  }
+}
+```
+
+That's it! No Tailscale, no Twilio, no OpenAI keys needed.
+
+**Step 4: Restart Claude Code and test**
+
+Send a WhatsApp message to yourself (or have someone message you) — Baileys receives it and spawns a Claude task. Or ask Claude to send you a WhatsApp:
+
+> "Send me a WhatsApp saying hello"
+
+</details>
+
+<details>
+<summary><b>Option D: Hybrid (Twilio/Telnyx voice + Baileys WhatsApp)</b></summary>
+
+Get the best of both worlds: Twilio/Telnyx handles voice calls and SMS, Baileys handles WhatsApp for free.
+
+1. Set up Twilio or Telnyx (Options A/B above)
+2. Run `bun run baileys:pair` to pair your WhatsApp
+3. Add to your MCP config:
+
+```json
+{
+  "env": {
+    "BETTERCALLCLAUDE_PHONE_PROVIDER": "twilio",
+    "BETTERCALLCLAUDE_WHATSAPP_PROVIDER": "baileys",
+    "BETTERCALLCLAUDE_PHONE_ACCOUNT_SID": "your-account-sid",
+    "BETTERCALLCLAUDE_PHONE_AUTH_TOKEN": "your-auth-token",
+    "BETTERCALLCLAUDE_PHONE_NUMBER": "+15551234567",
+    "BETTERCALLCLAUDE_USER_PHONE_NUMBER": "+15559876543",
+    "BETTERCALLCLAUDE_OPENAI_API_KEY": "sk-..."
+  }
+}
+```
+
+Voice calls and SMS go through Twilio. WhatsApp goes through Baileys (free).
+
+</details>
+
 ### 3. Set Up Tailscale Funnel (for webhooks)
+
+> **Skip this step** if you're using Baileys-only mode (Option C). Baileys doesn't need webhooks.
 
 Tailscale Funnel provides free, stable public URLs for receiving webhooks from your phone provider.
 
@@ -179,6 +267,15 @@ Restart Claude Code. Done!
 | `BETTERCALLCLAUDE_WHATSAPP_NUMBER` | WhatsApp number if different (e.g., Twilio Sandbox) |
 | `BETTERCALLCLAUDE_USER_PHONE_NUMBER` | Your personal phone number |
 | `BETTERCALLCLAUDE_OPENAI_API_KEY` | OpenAI API key for TTS/STT |
+
+### Baileys (Free WhatsApp)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BETTERCALLCLAUDE_WHATSAPP_PROVIDER` | *(unset)* | Set to `baileys` to enable free WhatsApp |
+| `BETTERCALLCLAUDE_BAILEYS_AUTH_DIR` | `data/baileys-auth` | Session credential directory |
+
+> **Baileys-only mode:** When `WHATSAPP_PROVIDER=baileys` and no Twilio/Telnyx credentials are set, only `USER_PHONE_NUMBER` is required. No Tailscale, no OpenAI key needed.
 
 ### Tailscale (Optional)
 
@@ -510,10 +607,11 @@ const history = await get_conversation_history({
 ### WhatsApp
 | Service | Cost |
 |---------|------|
+| **Baileys** (personal WhatsApp) | **Free** |
 | **Telnyx** WhatsApp | ~$0.005/message |
 | **Twilio** WhatsApp | ~$0.005/message + conversation fees |
 
-**Typical WhatsApp exchange:** ~$0.01-0.02/exchange
+**Typical WhatsApp exchange:** Free (Baileys) or ~$0.01-0.02 (Twilio/Telnyx)
 
 ### Infrastructure
 | Service | Cost |
@@ -581,6 +679,31 @@ const history = await get_conversation_history({
 2. Check WhatsApp Business approval status
 3. Verify message template compliance (for outbound-first messages)
 
+### Baileys Issues
+
+#### QR code doesn't appear
+The QR code cannot display inside the MCP server (stdout is reserved for MCP protocol). Run the pairing script separately:
+```bash
+cd /path/to/better-call-claude
+bun run baileys:pair
+```
+Once paired, the session is saved and the MCP server connects automatically.
+
+#### "Baileys configured but no session found"
+Run `bun run baileys:pair` to pair your WhatsApp first, then restart Claude Code.
+
+#### WhatsApp logged out
+Delete the auth directory and re-pair:
+```bash
+rm -rf data/baileys-auth
+bun run baileys:pair
+```
+
+#### Messages not being received
+1. Check that Baileys is connected (look for `[Baileys] Connected` in stderr)
+2. Ensure messages are from individual chats (group messages are filtered out)
+3. Verify the sender is not the linked account itself (own messages are filtered)
+
 ### Tailscale Issues
 
 #### "Tailscale not running"
@@ -629,6 +752,7 @@ npx @anthropics/mcp-inspector
 - **Runtime:** [Bun](https://bun.sh) - Fast JavaScript runtime
 - **Web Framework:** [Hono](https://hono.dev) - Lightweight, fast web framework
 - **Phone:** [Telnyx](https://telnyx.com) / [Twilio](https://twilio.com) - Telephony APIs
+- **WhatsApp:** [Baileys](https://github.com/WhiskeySockets/Baileys) - Free WhatsApp Web protocol
 - **Speech:** [OpenAI Whisper](https://openai.com) - STT/TTS
 - **Transport:** [Tailscale Funnel](https://tailscale.com/kb/1223/funnel) - Public URL tunneling
 - **Protocol:** [MCP](https://modelcontextprotocol.io) - Model Context Protocol

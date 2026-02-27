@@ -19,7 +19,7 @@ export async function updateTwilioWebhooks(
   const auth = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
   const baseUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}`;
 
-  console.log(`[TwilioWebhooks] Updating webhooks to: ${publicUrl}`);
+  console.error(`[TwilioWebhooks] Updating webhooks to: ${publicUrl}`);
 
   try {
     // Step 1: Look up the phone number SID
@@ -43,7 +43,7 @@ export async function updateTwilioWebhooks(
     }
 
     const phoneNumberSid = lookupData.incoming_phone_numbers[0].sid;
-    console.log(`[TwilioWebhooks] Found phone number SID: ${phoneNumberSid}`);
+    console.error(`[TwilioWebhooks] Found phone number SID: ${phoneNumberSid}`);
 
     // Step 2: Update the phone number webhooks
     const updateUrl = `${baseUrl}/IncomingPhoneNumbers/${phoneNumberSid}.json`;
@@ -70,8 +70,8 @@ export async function updateTwilioWebhooks(
       return;
     }
 
-    console.log(`[TwilioWebhooks] ✓ Voice webhook: ${publicUrl}/webhook/twilio/inbound`);
-    console.log(`[TwilioWebhooks] ✓ SMS webhook: ${publicUrl}/webhook/twilio/sms`);
+    console.error(`[TwilioWebhooks] ✓ Voice webhook: ${publicUrl}/webhook/twilio/inbound`);
+    console.error(`[TwilioWebhooks] ✓ SMS webhook: ${publicUrl}/webhook/twilio/sms`);
 
     // Step 3: Try to update WhatsApp sandbox webhook
     // Note: WhatsApp sandbox uses a different API - Messaging Service
@@ -92,9 +92,9 @@ async function updateWhatsAppSandbox(
   // OR we can try updating via the Messaging Service API if configured
 
   // For now, just log the URL that needs to be set
-  console.log(`[TwilioWebhooks] WhatsApp webhook (set manually in Twilio Console):`);
-  console.log(`[TwilioWebhooks]   Sandbox: https://console.twilio.com/us1/develop/sms/try-it-out/whatsapp-learn`);
-  console.log(`[TwilioWebhooks]   URL: ${publicUrl}/webhook/twilio/whatsapp`);
+  console.error(`[TwilioWebhooks] WhatsApp webhook (set manually in Twilio Console):`);
+  console.error(`[TwilioWebhooks]   Sandbox: https://console.twilio.com/us1/develop/sms/try-it-out/whatsapp-learn`);
+  console.error(`[TwilioWebhooks]   URL: ${publicUrl}/webhook/twilio/whatsapp`);
 
   // Try to update via API (may not work for sandbox)
   try {
@@ -128,7 +128,7 @@ async function updateWhatsAppSandbox(
         });
 
         if (updateResponse.ok) {
-          console.log(`[TwilioWebhooks] ✓ WhatsApp webhook (via Messaging Service): ${publicUrl}/webhook/twilio/whatsapp`);
+          console.error(`[TwilioWebhooks] ✓ WhatsApp webhook (via Messaging Service): ${publicUrl}/webhook/twilio/whatsapp`);
         }
       }
     }
