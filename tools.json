@@ -1,0 +1,113 @@
+{
+  "tools": [
+    {
+      "name": "receive_inbound_call",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "timeout_ms": { "type": "number", "description": "How long to wait for an incoming call (default: 5000ms)" }
+        }
+      }
+    },
+    {
+      "name": "initiate_call",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "message": { "type": "string", "description": "The message to speak when the user answers" }
+        },
+        "required": ["message"]
+      }
+    },
+    {
+      "name": "continue_call",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": { "type": "string", "description": "The ID of the active call conversation" },
+          "message": { "type": "string", "description": "The message to speak to the user" }
+        },
+        "required": ["conversation_id", "message"]
+      }
+    },
+    {
+      "name": "speak_to_user",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": { "type": "string", "description": "The ID of the active call conversation" },
+          "message": { "type": "string", "description": "The message to speak" }
+        },
+        "required": ["conversation_id", "message"]
+      }
+    },
+    {
+      "name": "end_call",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": { "type": "string", "description": "The ID of the call conversation to end" },
+          "message": { "type": "string", "description": "Optional closing message before hanging up" }
+        },
+        "required": ["conversation_id"]
+      }
+    },
+    {
+      "name": "receive_inbound_message",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "channel": { "type": "string", "enum": ["sms", "whatsapp", "any"], "description": "Which channel to check for messages (default: any)" },
+          "timeout_ms": { "type": "number", "description": "How long to wait for an incoming message (default: 5000ms)" }
+        }
+      }
+    },
+    {
+      "name": "send_sms",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "message": { "type": "string", "description": "The message to send" },
+          "wait_for_reply": { "type": "boolean", "description": "Wait for user to reply (default: true)" },
+          "timeout_ms": { "type": "number", "description": "How long to wait for a reply (default: 180000ms / 3 minutes)" }
+        },
+        "required": ["message"]
+      }
+    },
+    {
+      "name": "send_whatsapp",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "message": { "type": "string", "description": "The message to send" },
+          "wait_for_reply": { "type": "boolean", "description": "Wait for user to reply (default: true)" },
+          "timeout_ms": { "type": "number", "description": "How long to wait for a reply (default: 180000ms / 3 minutes)" }
+        },
+        "required": ["message"]
+      }
+    },
+    {
+      "name": "reply_to_conversation",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": { "type": "string", "description": "The ID of the conversation to reply to" },
+          "message": { "type": "string", "description": "The message to send" },
+          "wait_for_reply": { "type": "boolean", "description": "Wait for user to reply (default: true)" },
+          "timeout_ms": { "type": "number", "description": "How long to wait for a reply" }
+        },
+        "required": ["conversation_id", "message"]
+      }
+    },
+    {
+      "name": "get_conversation_history",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": { "type": "string", "description": "The ID of the conversation" }
+        },
+        "required": ["conversation_id"]
+      }
+    }
+  ]
+}

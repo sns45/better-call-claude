@@ -1,0 +1,83 @@
+# Capability declaration for better-call-claude 3.1.1 (Task 6.1 dogfood).
+#
+# Authored by reading the vendored src, not generated: every entry below is a
+# capability the committed TypeScript actually exercises. See docs/decisions.md
+# (M6 dogfood note) for the taxonomy friction this real server surfaced and the
+# capabilities the D1 schema could not cleanly express.
+#
+# Tools are not declared here (U2): attest extracts them from the running server
+# or reads them with --tools-from. The committed tools.json beside this file is
+# the static tool listing transcribed from src/index.ts's inline JSON Schemas,
+# standing in for a live extraction the real release would perform.
+kind: mcp-server
+name: better-call-claude
+version: 3.1.1
+source: npm
+mcp:
+  transports:
+    - stdio
+capabilities:
+  networkEgress:
+    - host: api.twilio.com
+      ports: [443]
+      reason: Twilio REST API for SMS, WhatsApp, and outbound voice calls (messaging.ts, phone-call.ts)
+    - host: messaging.twilio.com
+      ports: [443]
+      reason: Twilio Messaging Services API for webhook configuration (twilio-webhook-updater.ts)
+    - host: api.telnyx.com
+      ports: [443]
+      reason: Telnyx REST and SDK API for SMS, WhatsApp, and voice calls (messaging.ts, phone-call.ts)
+    - host: api.openai.com
+      ports: [443]
+      reason: OpenAI Whisper speech to text and TTS for voice calls (phone-call.ts)
+    - host: "*.whatsapp.net"
+      ports: [443]
+      reason: WhatsApp Web infrastructure the @whiskeysockets/baileys WebSocket connects to (baileys.ts); exact hosts are managed by the library
+    - host: web.whatsapp.com
+      ports: [443]
+      reason: WhatsApp Web version probe via baileys fetchLatestBaileysVersion (baileys.ts)
+    - host: api.anthropic.com
+      ports: [443]
+      reason: transitive egress via the spawned claude subprocess (task-executor.ts)
+  filesystem:
+    - path: data/baileys-auth/**
+      access: readwrite
+      reason: Baileys multi file auth state (WhatsApp session credentials and signal keys); default dir, overridable via BETTERCALLCLAUDE_BAILEYS_AUTH_DIR
+    - path: ${tmp}/bcc-spawn-*
+      access: write
+      reason: Per conversation spawn debug logs for the claude subprocess (task-executor.ts)
+  exec:
+    - binary: claude
+      reason: Spawns the Claude Code CLI to handle inbound calls and messages (task-executor.ts)
+    - binary: tailscale
+      reason: Sets up the Tailscale Funnel that exposes the webhook server publicly (transport.ts)
+    - binary: which
+      reason: Locates the tailscale binary before invoking it (transport.ts)
+    - binary: open
+      reason: Launches the Tailscale app on macOS (transport.ts)
+    - binary: sudo
+      reason: Starts the tailscaled daemon via systemctl on Linux (transport.ts)
+  env:
+    - BETTERCALLCLAUDE_BAILEYS_AUTH_DIR
+    - BETTERCALLCLAUDE_OPENAI_API_KEY
+    - BETTERCALLCLAUDE_PHONE_ACCOUNT_SID
+    - BETTERCALLCLAUDE_PHONE_AUTH_TOKEN
+    - BETTERCALLCLAUDE_PHONE_NUMBER
+    - BETTERCALLCLAUDE_PHONE_PROVIDER
+    - BETTERCALLCLAUDE_PORT
+    - BETTERCALLCLAUDE_STT_SILENCE_DURATION_MS
+    - BETTERCALLCLAUDE_TELNYX_PUBLIC_KEY
+    - BETTERCALLCLAUDE_TELNYX_VOICE
+    - BETTERCALLCLAUDE_TRANSCRIPT_TIMEOUT_MS
+    - BETTERCALLCLAUDE_TTS_VOICE
+    - BETTERCALLCLAUDE_USER_PHONE_NUMBER
+    - BETTERCALLCLAUDE_VERIFY_WEBHOOKS
+    - BETTERCALLCLAUDE_WHATSAPP_CHAT_HISTORY_SIZE
+    - BETTERCALLCLAUDE_WHATSAPP_NUMBER
+    - BETTERCALLCLAUDE_WHATSAPP_PROVIDER
+    - BUN_TEST
+    - TAILSCALE_HOSTNAME
+  secrets:
+    - api-key:twilio
+    - api-key:telnyx
+    - api-key:openai

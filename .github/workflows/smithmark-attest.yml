@@ -1,0 +1,46 @@
+name: smithmark attest
+
+# Publishes a smithmark capability attestation for each GitHub release, so
+# `smithmark verify better-call-claude@<version>` can confirm the shipped
+# tarball matches the declared capability manifest (smithmark.yaml).
+#
+# PENDING: smithmark itself is currently an unreleased, private repo (its
+# package naming/OCI scoping is still being finalized). There is no public
+# install path yet, so this job cannot actually run. The `if: false` guard
+# below keeps this workflow inert (it will show as skipped, never failing)
+# until smithmark ships a public release.
+#
+# TODO(smithmark public release): once `smithmark` is installable (e.g. via
+# `npm install -g smithmark` or a published action), flip the job's `if:`
+# condition to run on release events, and swap the placeholder install/attest
+# steps below for the real invocation.
+on:
+  release:
+    types: [published]
+
+jobs:
+  attest:
+    # Flip this to `true` (or remove it) once smithmark has a public release.
+    if: false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install smithmark
+        run: |
+          echo "TODO: install smithmark once it is publicly available."
+          echo "e.g. npm install -g smithmark  (or a published smithmark-action)"
+          exit 1
+
+      - name: Run smithmark attest
+        run: |
+          # tools.json is a static transcription of src/index.ts's inline tool
+          # schemas, standing in for the live extraction a real release would
+          # perform. Once smithmark is public, prefer letting attest extract
+          # tools from the running server and drop --tools-from if possible.
+          smithmark attest . --tools-from tools.json
+
+      - name: Upload attestation
+        run: |
+          echo "TODO: attach the resulting attestation to the GitHub release"
+          echo "(gh release upload) and/or push it to smithmark's registry."
