@@ -1,0 +1,40 @@
+name: Publish release
+
+# NOTE: bump the version in package.json and server.json before cutting a release.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  npm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - uses: dopplerhq/cli-action@v3
+      - name: Publish to npm (token via Doppler)
+        run: |
+          doppler run -- sh -c 'echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc'
+          doppler run -- npm publish --access public
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+
+  mcp:
+    needs: npm
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # GitHub OIDC for the io.github.sns45/* namespace
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+      - name: Publish to MCP registry (GitHub OIDC, keyless)
+        run: |
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish
