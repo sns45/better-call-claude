@@ -28,9 +28,12 @@ jobs:
         with:
           go-version: '1.25'
 
-      - name: Install smithmark
+      - name: Install smithmark and forgeseal
         run: |
           go install github.com/sns45/smithmark/cmd/smithmark@v0.2.0
+          # forgeseal composes the dependency SBOM that smithmark attest folds
+          # into the manifest; pinned to the CLI surface smithmark builds against.
+          go install github.com/sns45/forgeseal/cmd/forgeseal@v0.5.1
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Build + pack
