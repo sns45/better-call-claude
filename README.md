@@ -638,15 +638,19 @@ const history = await get_conversation_history({
 
 This repo ships a [smithmark](https://github.com/smithmark) capability manifest, `smithmark.yaml`, at the repo root. It is a "trust as code" declaration of everything this server touches outside its own process: the network hosts it egresses to (Twilio, Telnyx, OpenAI, WhatsApp/Baileys infrastructure, and, transitively, api.anthropic.com via the spawned `claude` subprocess), the filesystem paths it reads/writes (Baileys auth state, spawn debug logs), the binaries it executes (`claude`, `tailscale`, `which`, `open`, `sudo`), the environment variables it reads, and the secret types it handles (Twilio, Telnyx, and OpenAI API keys).
 
-Once a release is attested, you can verify a published version with:
+On every GitHub release, `.github/workflows/smithmark-attest.yml` produces a **keyless** Sigstore attestation over the published npm tarball: GitHub's OIDC token is exchanged for a short-lived Fulcio signing certificate, the attestation is signed with it, and the signature is recorded in the public Rekor transparency log. There are no signing keys and no secrets involved. The resulting `smithmark-attestation.sigstore.json` is attached to the GitHub release.
+
+Verify a published version with:
 
 ```bash
-smithmark verify better-call-claude@3.1.1
+smithmark verify better-call-claude@3.1.1 \
+  --certificate-identity "https://github.com/sns45/better-call-claude/.github/workflows/smithmark-attest.yml@refs/tags/v3.1.1" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
 ```
 
-`smithmark.yaml` is the authoritative declaration of this server's capability surface. `smithmark lint` (and `verify` in strict mode) is deliberately host-unaware: it flags every network/exec/filesystem call site as a generic "undeclared" finding regardless of what the manifest declares at the host level, so it will report advisory findings against any real MCP server that talks to the network. Those findings are expected noise, not a sign the manifest is out of date; the manifest above is the record to trust.
+(substitute the actual release tag for `v3.1.1`)
 
-Note: smithmark is not yet publicly released, so the attestation workflow (`.github/workflows/smithmark-attest.yml`) is currently inert (guarded with `if: false`) and will start producing real attestations once smithmark ships.
+`smithmark.yaml` is the authoritative declaration of this server's capability surface. `smithmark lint` (and `verify` in strict mode) is deliberately host-unaware: it flags every network/exec/filesystem call site as a generic "undeclared" finding regardless of what the manifest declares at the host level, so it will report advisory findings against any real MCP server that talks to the network. Those findings are expected noise, not a sign the manifest is out of date; the manifest above is the record to trust.
 
 ---
 
