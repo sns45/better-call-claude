@@ -11,7 +11,7 @@
 # standing in for a live extraction the real release would perform.
 kind: mcp-server
 name: better-call-claude
-version: 3.1.1
+version: 3.1.3
 source: npm
 mcp:
   transports:
