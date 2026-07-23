@@ -1,46 +1,56 @@
 name: smithmark attest
 
-# Publishes a smithmark capability attestation for each GitHub release, so
-# `smithmark verify better-call-claude@<version>` can confirm the shipped
-# tarball matches the declared capability manifest (smithmark.yaml).
+# Produces a keyless smithmark capability attestation for each GitHub release,
+# so `smithmark verify better-call-claude@<version>` can confirm the shipped
+# npm tarball matches the declared capability manifest (smithmark.yaml).
 #
-# PENDING: smithmark itself is currently an unreleased, private repo (its
-# package naming/OCI scoping is still being finalized). There is no public
-# install path yet, so this job cannot actually run. The `if: false` guard
-# below keeps this workflow inert (it will show as skipped, never failing)
-# until smithmark ships a public release.
-#
-# TODO(smithmark public release): once `smithmark` is installable (e.g. via
-# `npm install -g smithmark` or a published action), flip the job's `if:`
-# condition to run on release events, and swap the placeholder install/attest
-# steps below for the real invocation.
+# Keyless: the job signs via the ambient GitHub Actions OIDC token (GitHub ->
+# Fulcio short-lived certificate -> Rekor transparency log). No signing keys,
+# no secrets, no Doppler. See the "Capability attestation" section in
+# README.md for how to verify the resulting attestation.
+
 on:
   release:
     types: [published]
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write      # keyless Sigstore signing via GitHub OIDC — no secrets
+  contents: write      # upload the attestation to the release
 
 jobs:
   attest:
-    # Flip this to `true` (or remove it) once smithmark has a public release.
-    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
 
       - name: Install smithmark
         run: |
-          echo "TODO: install smithmark once it is publicly available."
-          echo "e.g. npm install -g smithmark  (or a published smithmark-action)"
-          exit 1
+          go install github.com/sns45/smithmark/cmd/smithmark@v0.2.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
-      - name: Run smithmark attest
+      - name: Build + pack
         run: |
-          # tools.json is a static transcription of src/index.ts's inline tool
-          # schemas, standing in for the live extraction a real release would
-          # perform. Once smithmark is public, prefer letting attest extract
-          # tools from the running server and drop --tools-from if possible.
-          smithmark attest . --tools-from tools.json
+          bun install --frozen-lockfile
+          bun run build
+          npm pack        # produces <name>-<version>.tgz
 
-      - name: Upload attestation
+      - name: Keyless attest (GitHub OIDC -> Fulcio -> Rekor)
         run: |
-          echo "TODO: attach the resulting attestation to the GitHub release"
-          echo "(gh release upload) and/or push it to smithmark's registry."
+          smithmark attest . --keyless --tools-from tools.json --tarball *.tgz --output smithmark-attestation.sigstore.json
+
+      - name: Attach to release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${GITHUB_REF#refs/tags/}" smithmark-attestation.sigstore.json --clobber
+
+      - name: Upload as artifact (for workflow_dispatch verification runs)
+        uses: actions/upload-artifact@v4
+        with:
+          name: smithmark-attestation
+          path: smithmark-attestation.sigstore.json
